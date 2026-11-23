@@ -30,6 +30,7 @@
 	import KindPicker from './KindPicker.svelte';
 	import CalendarMonth from './CalendarMonth.svelte';
 	import RecommendControls from './RecommendControls.svelte';
+	import { buildIcs, downloadIcs } from './ics';
 
 	let { watchlist, films }: { watchlist: WatchlistFilm[]; films: EnrichedFilm[] } = $props();
 
@@ -53,9 +54,8 @@
 	const entries = $derived(
 		calendarEntries([...watchlistFilms, ...recommended], lookup.values, region, kinds, from)
 	);
-	const upcoming = $derived(
-		entries.filter((entry) => entry.date >= today && !entry.film.recommended)
-	);
+	const exportable = $derived(entries.filter((entry) => entry.date >= today));
+	const upcoming = $derived(exportable.filter((entry) => !entry.film.recommended));
 	const lastMonth = $derived(entries.length > 0 ? monthKey(entries.at(-1)!.date) : thisMonth);
 	const month = $derived(clampMonth(picked, thisMonth, lastMonth));
 	const nextMonth = $derived(nextReleaseMonth(entries, month));
@@ -72,12 +72,20 @@
 		() => lookup,
 		() => candidates
 	);
+
+	function exportCalendar() {
+		if (exportable.length === 0) return;
+		downloadIcs(buildIcs(exportable, { region }), `vizard-releases-${region.toLowerCase()}.ics`);
+	}
 </script>
 
 <div class="form-controls">
 	<div class="controls">
 		<RegionSelect label="Release dates for" />
 		<KindPicker legend="Release types" bind:kinds />
+		<button type="button" onclick={exportCalendar} disabled={exportable.length === 0}>
+			Download .ics
+		</button>
 	</div>
 
 	<div class="recommend">
