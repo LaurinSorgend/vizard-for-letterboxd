@@ -1,6 +1,5 @@
 import { createContext } from 'svelte';
 import { fetchFeed } from '$lib/api/endpoints';
-import { normalizeUri } from '$lib/film/identity';
 import { noun } from '$lib/format';
 import { LoadRunner, type LoadPhase } from '$lib/ingest/loader.svelte';
 import {
@@ -14,7 +13,14 @@ import {
 	type Progress
 } from '$lib/ingest/pipeline';
 import { FEED_FILM_LIMIT } from '$lib/ingest/rss';
-import { loadOverrides, removeOverride, saveOverride, type OverrideMap } from '$lib/overrides';
+import {
+	loadOverrides,
+	removeOverride,
+	sameSubject,
+	saveOverride,
+	type OverrideMap,
+	type OverrideSubject
+} from '$lib/overrides';
 import { excludedIds } from '$lib/recommend/recommend';
 import { clearSnapshot, loadSnapshot, saveSnapshot, type LibrarySource } from '$lib/store';
 import type {
@@ -119,11 +125,15 @@ export class Library {
 		await this.#syncFeed();
 	}
 
-	/** Upgrades restored collections saved before franchise `parts` stubs were stored. */
+	/**
+	 * Upgrades restored collections saved before franchise `parts` stubs were stored. The result
+	 * is dropped if the films changed meanwhile (a new load, an override, a feed top-up).
+	 */
 	async #refreshMissingCollectionParts(): Promise<void> {
+		const base = this.films;
 		try {
-			const { collections, updated } = await collectionsFor(this.films, this.collections);
-			if (!updated) return;
+			const { collections, updated } = await collectionsFor(base, this.collections);
+			if (!updated || this.films !== base) return;
 			this.collections = collections;
 			if (this.remember) await this.#persist();
 		} catch {
@@ -135,11 +145,14 @@ export class Library {
 		this.#loader.phase = 'idle';
 	}
 
+	/** Tops up from the feed; skipped if the films changed while the feed was fetched. */
 	async #syncFeed(): Promise<void> {
 		const username = this.profile?.username;
 		if (!username) return;
+		const base = this.films;
 		try {
-			const refresh = await refreshFromFeed(this.films, await fetchFeed(username), this.overrides);
+			const refresh = await refreshFromFeed(base, await fetchFeed(username), this.overrides);
+			if (this.films !== base) return;
 			this.feedGap = refresh.gap;
 			this.feedNote = refresh.gap
 				? 'Some diary entries are missing.'
@@ -150,7 +163,7 @@ export class Library {
 			await this.#setFilms(refresh.films, this.collections);
 			if (!refresh.gap) this.feedNote = this.#entriesNote(refresh.addedEntries);
 		} catch {
-			this.feedNote = 'Could not check for new diary entries.';
+			if (this.films === base) this.feedNote = 'Could not check for new diary entries.';
 		}
 	}
 
@@ -215,33 +228,32 @@ export class Library {
 
 	/** Persists a local TMDB override only after TMDB confirms the record exists. */
 	async setTmdbOverride(
-		uri: string,
+		subject: OverrideSubject,
 		target: TmdbRef
 	): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
 		const result = await resolveTmdbOverride(target);
 		if (!result.ok) return result;
-		this.overrides = saveOverride(this.overrides, uri, target);
-		await this.#applyLocalOverride(uri, result.record, result.omdb);
+		this.overrides = saveOverride(this.overrides, subject, target);
+		await this.#applyLocalOverride(subject, result.record, result.omdb);
 		return { ok: true, title: result.record.title };
 	}
 
 	/** Removes a saved local TMDB override, returning the film to unmatched until retried. */
-	async clearTmdbOverride(uri: string): Promise<void> {
-		this.overrides = removeOverride(this.overrides, uri);
-		await this.#applyLocalOverride(uri, null, null);
+	async clearTmdbOverride(subject: OverrideSubject): Promise<void> {
+		this.overrides = removeOverride(this.overrides, subject);
+		await this.#applyLocalOverride(subject, null, null);
 	}
 
 	async #applyLocalOverride(
-		uri: string,
+		subject: OverrideSubject,
 		tmdb: TmdbMovie | null,
 		omdb: OmdbRatings | null
 	): Promise<void> {
-		const key = normalizeUri(uri);
 		this.watchlist = this.watchlist.map((item) =>
-			normalizeUri(item.uri) === key ? { ...item, tmdb } : item
+			sameSubject(item, subject) ? { ...item, tmdb } : item
 		);
 		await this.#setFilms(
-			this.films.map((film) => (normalizeUri(film.uri) === key ? { ...film, tmdb, omdb } : film)),
+			this.films.map((film) => (sameSubject(film, subject) ? { ...film, tmdb, omdb } : film)),
 			this.collections
 		);
 	}
@@ -282,15 +294,22 @@ export class Library {
 
 	async #setFilms(films: EnrichedFilm[], knownCollections: CollectionParts[] = []): Promise<void> {
 		this.films = films;
-		this.collections = (await collectionsFor(films, knownCollections)).collections;
+		const { collections } = await collectionsFor(films, knownCollections);
+		if (this.films !== films) return;
+		this.collections = collections;
 		if (this.remember) await this.#persist();
 	}
 
+	/** Saves the snapshot; if "remember" was switched off mid-save, clears it again afterwards. */
 	async #persist(): Promise<void> {
 		const seq = ++this.#saveSeq;
 		const { films, watchlist, lists, profile, collections, source } = this;
 		const saved = await saveSnapshot({ films, watchlist, lists, profile, collections, source });
-		if (seq !== this.#saveSeq || !this.remember) return;
+		if (!this.remember) {
+			if (saved) await clearSnapshot();
+			return;
+		}
+		if (seq !== this.#saveSeq) return;
 		if (saved) {
 			this.saveError = null;
 		} else {
