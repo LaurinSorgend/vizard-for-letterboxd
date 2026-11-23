@@ -60,3 +60,121 @@ describe('parseExport watchlist', () => {
 		expect(data.watchlist[0].added).toBeNull();
 	});
 });
+
+describe('parseExport lists', () => {
+	it('parses a standard Letterboxd v7 list with tags and multiline quoted descriptions', () => {
+		const sciFi =
+			'Letterboxd list export v7\n' +
+			'Date,Name,Tags,URL,Description\n' +
+			'2021-05-01,My Top Sci-Fi,"sci-fi, favourites, ",https://boxd.it/abc,"Line one, with comma\nLine two"\n' +
+			'\n' +
+			'Position,Name,Year,URL,Description\n' +
+			'1,Stalker,1979,https://boxd.it/298G,"A zone, a wish\nand a dog"\n' +
+			'2,Solaris,1972,https://boxd.it/2a0A,\n' +
+			',,2000,https://boxd.it/empty,\n';
+
+		const { lists } = parseExport(
+			zip({ 'watched.csv': WATCHED, 'lists/my-top-sci-fi.csv': sciFi })
+		);
+
+		expect(lists).toEqual([
+			{
+				id: 'my-top-sci-fi',
+				name: 'My Top Sci-Fi',
+				date: '2021-05-01',
+				url: 'https://boxd.it/abc',
+				description: 'Line one, with comma\nLine two',
+				tags: ['sci-fi', 'favourites'],
+				items: [
+					{
+						position: 1,
+						name: 'Stalker',
+						year: 1979,
+						uri: 'https://boxd.it/298G',
+						description: 'A zone, a wish\nand a dog'
+					},
+					{
+						position: 2,
+						name: 'Solaris',
+						year: 1972,
+						uri: 'https://boxd.it/2a0A',
+						description: ''
+					}
+				]
+			}
+		]);
+	});
+
+	it('tolerates Letterboxd URI column, missing version line, blank name fallback, and sorts multiple lists', () => {
+		const listA =
+			'Date,Name,Tags,URL,Description\n' +
+			'2022-01-10,,classic,https://boxd.it/a,\n' +
+			'Position,Name,Year,Letterboxd URI,Description\n' +
+			'1,Persona,1966,https://boxd.it/p1,\n';
+		const listB =
+			'Letterboxd list export v7\n' +
+			'Date,Name,Tags,URL,Description\n' +
+			'2023-03-04,Longer List,,https://boxd.it/b,\n' +
+			'Position,Name,Year,URL,Description\n' +
+			'1,Stalker,1979,https://boxd.it/1,\n' +
+			'2,Mirror,1975,https://boxd.it/2,\n';
+
+		const { lists } = parseExport(
+			zip({
+				'watched.csv': WATCHED,
+				'lists/my-classic-picks.csv': listA,
+				'lists/longer-list.csv': listB
+			})
+		);
+
+		expect(lists.map((l) => ({ id: l.id, name: l.name, count: l.items.length }))).toEqual([
+			{ id: 'longer-list', name: 'Longer List', count: 2 },
+			{ id: 'my-classic-picks', name: 'My classic picks', count: 1 }
+		]);
+		expect(lists[1].items[0].uri).toBe('https://boxd.it/p1');
+	});
+
+	it('ignores deleted/lists, nested subdirectories, and malformed or empty list CSVs', () => {
+		const valid =
+			'Letterboxd list export v7\n' +
+			'Date,Name,Tags,URL,Description\n' +
+			'2024-02-01,Valid List,,https://boxd.it/v,\n' +
+			'Position,Name,Year,URL,Description\n' +
+			'1,Stalker,1979,https://boxd.it/1,\n';
+
+		const { lists } = parseExport(
+			zip({
+				'watched.csv': WATCHED,
+				'lists/valid.csv': valid,
+				'deleted/lists/removed.csv': valid,
+				'lists/nested/sub.csv': valid,
+				'lists/empty.csv': '',
+				'lists/garbage.csv': 'foo,bar\n1,2\n'
+			})
+		);
+
+		expect(lists.map((l) => l.id)).toEqual(['valid']);
+	});
+
+	it('parses lists inside a root-folder prefixed export zip', () => {
+		const listCsv =
+			'Letterboxd list export v7\n' +
+			'Date,Name,Tags,URL,Description\n' +
+			'2025-05-01,Exported List,tag1,https://boxd.it/e,\n' +
+			'Position,Name,Year,URL,Description\n' +
+			'1,Stalker,1979,https://boxd.it/1,\n';
+
+		const { lists } = parseExport(
+			zip({
+				'letterboxd-user-2025/watched.csv': WATCHED,
+				'letterboxd-user-2025/lists/exported-list.csv': listCsv,
+				'letterboxd-user-2025/deleted/lists/old.csv': listCsv
+			})
+		);
+
+		expect(lists).toHaveLength(1);
+		expect(lists[0].id).toBe('exported-list');
+		expect(lists[0].name).toBe('Exported List');
+		expect(lists[0].items).toHaveLength(1);
+	});
+});

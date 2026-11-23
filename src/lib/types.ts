@@ -37,9 +37,31 @@ export interface WatchlistEntry {
 	added: string | null;
 }
 
+/** One film entry in a Letterboxd custom list (`lists/*.csv`). */
+export interface CustomListItem {
+	position: number | null;
+	name: string;
+	year: number | null;
+	uri: string;
+	description: string;
+}
+
+/** A user-created Letterboxd list parsed from `lists/*.csv`. */
+export interface CustomList {
+	/** Filename slug (without `.csv`), unique within the export. */
+	id: string;
+	name: string;
+	date: string | null;
+	url: string;
+	description: string;
+	tags: string[];
+	items: CustomListItem[];
+}
+
 export interface LetterboxdData {
 	films: Film[];
 	watchlist: WatchlistEntry[];
+	lists: CustomList[];
 	profile: Profile | null;
 }
 

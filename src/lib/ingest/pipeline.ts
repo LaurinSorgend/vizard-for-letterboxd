@@ -46,6 +46,7 @@ export async function loadFeed(username: string): Promise<LetterboxdData> {
 	return {
 		films: mergeFeed([], feed).newFilms,
 		watchlist: [],
+		lists: [],
 		profile: blankProfile(username)
 	};
 }

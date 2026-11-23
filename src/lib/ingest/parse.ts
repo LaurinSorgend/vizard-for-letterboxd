@@ -1,7 +1,14 @@
 import { unzipSync } from 'fflate';
 import Papa from 'papaparse';
 import { getOrCreate } from '$lib/maps';
-import type { Film, LetterboxdData, Profile, WatchlistEntry } from '$lib/types';
+import type {
+	CustomList,
+	CustomListItem,
+	Film,
+	LetterboxdData,
+	Profile,
+	WatchlistEntry
+} from '$lib/types';
 import { blankFilm, filmKey } from './film';
 
 type Row = Record<string, string>;
@@ -12,9 +19,119 @@ function parseCsv(bytes: Uint8Array | undefined): Row[] {
 	return Papa.parse<Row>(text, { header: true, skipEmptyLines: true }).data;
 }
 
-function toYear(value: string | undefined): number | null {
-	const year = Number.parseInt(value ?? '', 10);
-	return Number.isFinite(year) ? year : null;
+function toInt(value: string | undefined): number | null {
+	const parsed = Number.parseInt(value ?? '', 10);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+const toYear = toInt;
+
+function humanizeSlug(slug: string): string {
+	const words = slug.replace(/[-_]+/g, ' ').trim();
+	return words ? words[0].toUpperCase() + words.slice(1) : slug;
+}
+
+function isMetaHeader(cells: string[]): boolean {
+	const cols = new Set(cells.map((c) => c.trim()));
+	return (
+		cols.has('Name') &&
+		(cols.has('Date') || cols.has('Tags')) &&
+		!cols.has('Position') &&
+		!cols.has('Year')
+	);
+}
+
+function isItemsHeader(cells: string[]): boolean {
+	const cols = new Set(cells.map((c) => c.trim()));
+	return (
+		cols.has('Name') && (cols.has('Position') || cols.has('Year') || cols.has('Letterboxd URI'))
+	);
+}
+
+function columnReader(headers: string[]) {
+	const index = new Map(headers.map((h, i) => [h.trim(), i]));
+	return (row: string[] | undefined, ...names: string[]): string => {
+		if (!row) return '';
+		for (const name of names) {
+			const i = index.get(name);
+			if (i !== undefined) {
+				const value = (row[i] ?? '').trim();
+				if (value) return value;
+			}
+		}
+		return '';
+	};
+}
+
+/**
+ * Parses one Letterboxd custom list CSV (`lists/<slug>.csv`), which packs a metadata table and an
+ * item table into a single file. Returns null for empty or unrecognized files.
+ */
+function parseListCsv(id: string, bytes: Uint8Array): CustomList | null {
+	if (bytes.byteLength === 0) return null;
+	const text = new TextDecoder().decode(bytes).replace(/^\uFEFF/, '');
+	const rows = Papa.parse<string[]>(text, { skipEmptyLines: true }).data;
+	if (rows.length === 0) return null;
+
+	const metaIdx = rows.findIndex(isMetaHeader);
+	const itemStart = metaIdx >= 0 ? metaIdx + 1 : 0;
+	const itemRelIdx = rows.slice(itemStart).findIndex(isItemsHeader);
+	const itemsIdx = itemRelIdx >= 0 ? itemStart + itemRelIdx : -1;
+	if (metaIdx === -1 && itemsIdx === -1) return null;
+
+	const readMeta = metaIdx >= 0 ? columnReader(rows[metaIdx]) : () => '';
+	const metaRowIdx = metaIdx + 1;
+	const metaRow =
+		metaIdx >= 0 && metaRowIdx < rows.length && metaRowIdx !== itemsIdx
+			? rows[metaRowIdx]
+			: undefined;
+
+	const tags = readMeta(metaRow, 'Tags')
+		.split(',')
+		.map((t) => t.trim())
+		.filter(Boolean);
+
+	const items: CustomListItem[] = [];
+	if (itemsIdx >= 0) {
+		const readItem = columnReader(rows[itemsIdx]);
+		for (const row of rows.slice(itemsIdx + 1)) {
+			const name = readItem(row, 'Name');
+			if (!name) continue;
+			items.push({
+				position: toInt(readItem(row, 'Position')),
+				name,
+				year: toYear(readItem(row, 'Year')),
+				uri: readItem(row, 'URL', 'Letterboxd URI'),
+				description: readItem(row, 'Description')
+			});
+		}
+	}
+
+	return {
+		id,
+		name: readMeta(metaRow, 'Name') || humanizeSlug(id),
+		date: readMeta(metaRow, 'Date') || null,
+		url: readMeta(metaRow, 'URL', 'Letterboxd URI'),
+		description: readMeta(metaRow, 'Description'),
+		tags,
+		items
+	};
+}
+
+function parseLists(entries: Record<string, Uint8Array>, prefix: string): CustomList[] {
+	const listPrefix = prefix + 'lists/';
+	const lists: CustomList[] = [];
+	for (const [path, bytes] of Object.entries(entries)) {
+		if (!path.startsWith(listPrefix) || !path.endsWith('.csv')) continue;
+		const slug = path.slice(listPrefix.length, -4);
+		if (!slug || slug.includes('/')) continue;
+		const parsed = parseListCsv(slug, bytes);
+		if (parsed) lists.push(parsed);
+	}
+	return lists.sort(
+		(a, b) =>
+			b.items.length - a.items.length || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+	);
 }
 
 /**
@@ -83,5 +200,7 @@ export function parseExport(zipBytes: Uint8Array): LetterboxdData {
 			}
 		: null;
 
-	return { films: [...films.values()], watchlist, profile };
+	const lists = parseLists(entries, prefix);
+
+	return { films: [...films.values()], watchlist, lists, profile };
 }

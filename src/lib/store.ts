@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import {
 	RECORD_SCHEMA,
 	type CollectionParts,
+	type CustomList,
 	type EnrichedFilm,
 	type Profile,
 	type WatchlistFilm
@@ -23,6 +24,8 @@ interface Snapshot {
 	watchlist: WatchlistFilm[];
 	/** Written by older builds; derived from `watchlist` now, so ignored on read and no longer saved. */
 	watchlistIds?: number[];
+	/** Parsed custom lists from `lists/*.csv`; omitted in older saved snapshots. */
+	lists?: CustomList[];
 	profile: Profile | null;
 	collections: CollectionParts[];
 	source: LibrarySource;
