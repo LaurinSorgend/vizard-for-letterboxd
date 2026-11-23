@@ -88,12 +88,18 @@ export function loadOverrides(): OverrideMap {
 	}
 }
 
-function persistOverrides(overrides: OverrideMap): void {
-	if (Object.keys(overrides).length === 0) removePref(STORAGE_KEY);
+/** Writes overrides to this device; call only while the library is remembered. */
+export function persistOverrides(overrides: OverrideMap): void {
+	if (Object.keys(overrides).length === 0) forgetOverrides();
 	else writePref(STORAGE_KEY, JSON.stringify(overrides));
 }
 
-/** Saves under the title + year key and drops any older URI key for the same film. */
+/** Removes stored overrides from this device. */
+export function forgetOverrides(): void {
+	removePref(STORAGE_KEY);
+}
+
+/** Adds an override under the title + year key, dropping any older URI key for the same film. */
 export function saveOverride(
 	current: OverrideMap,
 	subject: OverrideSubject,
@@ -101,7 +107,6 @@ export function saveOverride(
 ): OverrideMap {
 	const next = { ...current, [titleKey(subject)]: target };
 	delete next[normalizeUri(subject.uri)];
-	persistOverrides(next);
 	return next;
 }
 
@@ -110,6 +115,5 @@ export function removeOverride(current: OverrideMap, subject: OverrideSubject): 
 	if (keys.length === 0) return current;
 	const next = { ...current };
 	for (const key of keys) delete next[key];
-	persistOverrides(next);
 	return next;
 }

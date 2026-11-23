@@ -14,7 +14,9 @@ import {
 } from '$lib/ingest/pipeline';
 import { FEED_FILM_LIMIT } from '$lib/ingest/rss';
 import {
+	forgetOverrides,
 	loadOverrides,
+	persistOverrides,
 	removeOverride,
 	sameSubject,
 	saveOverride,
@@ -107,6 +109,7 @@ export class Library {
 	/** Restores a remembered library, upgrades any legacy collections, then tops up from the feed. */
 	async restore(): Promise<void> {
 		const snapshot = await loadSnapshot();
+		if (!snapshot) forgetOverrides();
 		if (!snapshot || this.#loader.phase !== 'idle') return;
 		this.films = snapshot.films;
 		this.watchlist = snapshot.watchlist;
@@ -172,7 +175,7 @@ export class Library {
 		if (on) void this.#persist();
 		else {
 			this.#saveSeq += 1;
-			void clearSnapshot();
+			void this.#forget();
 			this.saveError = null;
 		}
 	}
@@ -300,23 +303,33 @@ export class Library {
 		if (this.remember) await this.#persist();
 	}
 
-	/** Saves the snapshot; if "remember" was switched off mid-save, clears it again afterwards. */
+	/**
+	 * Saves the snapshot and overrides; if "remember" was switched off mid-save, clears them
+	 * again afterwards.
+	 */
 	async #persist(): Promise<void> {
 		const seq = ++this.#saveSeq;
+		persistOverrides(this.overrides);
 		const { films, watchlist, lists, profile, collections, source } = this;
 		const saved = await saveSnapshot({ films, watchlist, lists, profile, collections, source });
 		if (!this.remember) {
-			if (saved) await clearSnapshot();
+			await this.#forget();
 			return;
 		}
 		if (seq !== this.#saveSeq) return;
 		if (saved) {
 			this.saveError = null;
 		} else {
-			await clearSnapshot();
+			await this.#forget();
 			this.remember = false;
 			this.saveError = 'Could not save to browser storage. Data stays for this visit only.';
 		}
+	}
+
+	/** Removes everything this library stored on the device. */
+	async #forget(): Promise<void> {
+		forgetOverrides();
+		await clearSnapshot();
 	}
 }
 

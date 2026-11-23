@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$app/environment', () => ({ browser: true }));
 
 import {
+	forgetOverrides,
 	formatTmdbOverride,
 	getOverride,
 	loadOverrides,
 	parseTmdbOverride,
+	persistOverrides,
 	removeOverride,
 	saveOverride
 } from './overrides';
@@ -63,16 +65,27 @@ describe('override persistence', () => {
 	};
 	const target = { mediaType: 'tv', tmdbId: 87108 } as const;
 
-	it('matches the same film across export and feed URIs, and clears storage when empty', () => {
+	it('matches the same film across export and feed URIs without touching storage', () => {
 		const storage = installStorage();
 		const saved = saveOverride({}, feedFilm, target);
 		expect(getOverride(saved, exportFilm)).toEqual(target);
 		expect(formatTmdbOverride(getOverride(saved, exportFilm)!)).toBe('tv/87108');
 		expect(getOverride(saved, { ...exportFilm, year: 2020 })).toBeUndefined();
+		expect(removeOverride(saved, exportFilm)).toEqual({});
+		expect(storage.size).toBe(0);
+	});
+
+	it('persists on request, clears storage when empty, and forgets on request', () => {
+		const storage = installStorage();
+		const saved = saveOverride({}, feedFilm, target);
+		persistOverrides(saved);
 		expect(loadOverrides()).toEqual(saved);
 
-		const cleared = removeOverride(saved, exportFilm);
-		expect(cleared).toEqual({});
+		persistOverrides({});
+		expect(storage.size).toBe(0);
+
+		persistOverrides(saved);
+		forgetOverrides();
 		expect(storage.size).toBe(0);
 	});
 
