@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { letterboxdTmdbUrl } from '$lib/film/links';
 	import { noun, stars } from '$lib/format';
 	import FilmList from './FilmList.svelte';
 	import { selectByKey } from './selection.svelte';
@@ -42,8 +43,9 @@
 			d.total !== null
 				? `${d.seen} of ${d.total} ${noun(d.total, 'film')}${d.completed ? ', completed' : ''}`
 				: `${d.seen} ${noun(d.seen, 'film')}`;
+		const missing = d.missing.length > 0 ? `, ${d.missing.length} unwatched` : '';
 		const rating = d.avg !== null ? `, avg ${d.avg.toFixed(1)}` : '';
-		return `${d.label}: ${progress}${rating}; click to list films`;
+		return `${d.label}: ${progress}${missing}${rating}; click to list films`;
 	}
 </script>
 
@@ -110,6 +112,24 @@
 {#if selection.selected}
 	{@const selected = selection.selected}
 	<FilmList title={selected.label} films={selected.films} />
+	{#if selected.missing.length > 0}
+		<div class="missing-panel">
+			<h4>
+				Not yet watched in {selected.label}: {selected.missing.length}
+				{noun(selected.missing.length, 'film')}
+			</h4>
+			<ul class="missing-list">
+				{#each selected.missing as part (part.tmdbId)}
+					<li>
+						<a href={letterboxdTmdbUrl(part.tmdbId)} target="_blank" rel="noopener">{part.title}</a>
+						{#if part.year !== null}
+							<span class="missing-year" data-numeric>{part.year}</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
 {/if}
 
 <style>
@@ -239,5 +259,51 @@
 		font-size: var(--text-sm);
 		color: var(--fg-secondary);
 		justify-self: end;
+	}
+	.missing-panel {
+		margin-top: 8px;
+		padding: 12px;
+		background: var(--bg-secondary);
+		border-top: 1px solid var(--border);
+	}
+	.missing-panel h4 {
+		margin: 0 0 8px;
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--fg-secondary);
+	}
+	.missing-list {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		columns: 2;
+		column-gap: 24px;
+	}
+	.missing-list li {
+		display: flex;
+		gap: 8px;
+		padding: 2px 0;
+		break-inside: avoid;
+		font-size: var(--text-sm);
+	}
+	.missing-list a {
+		color: var(--accent);
+		text-decoration: none;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		min-width: 0;
+	}
+	.missing-list a:hover {
+		text-decoration: underline;
+	}
+	.missing-year {
+		color: var(--fg-muted);
+		flex-shrink: 0;
+	}
+	@media (max-width: 640px) {
+		.missing-list {
+			columns: 1;
+		}
 	}
 </style>

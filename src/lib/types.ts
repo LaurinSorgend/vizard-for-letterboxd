@@ -79,11 +79,21 @@ export interface Collection {
 	posterPath: string | null;
 }
 
-/** A franchise's full size, from TMDB's collection endpoint, so "five of six" is sayable. */
+/** One film in a TMDB collection, enough to list missing entries in a franchise. */
+export interface CollectionPart {
+	tmdbId: number;
+	title: string;
+	year: number | null;
+	posterPath: string | null;
+}
+
+/** A franchise's full size and film list, from TMDB's collection endpoint. */
 export interface CollectionParts {
 	id: number;
 	name: string;
 	total: number;
+	/** Films belonging to the collection, chronologically sorted; omitted in older cached entries. */
+	parts?: CollectionPart[];
 }
 
 /**

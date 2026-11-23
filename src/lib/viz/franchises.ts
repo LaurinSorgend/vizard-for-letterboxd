@@ -1,16 +1,18 @@
 import { byCollection, type BarDatum } from '$lib/film/tally';
-import type { CollectionParts, EnrichedFilm } from '$lib/types';
+import type { CollectionPart, CollectionParts, EnrichedFilm } from '$lib/types';
 
 /** Ordering for the franchise progress chart. */
 export type FranchiseSort = 'count' | 'completion' | 'rating';
 
-/** One followed franchise with watched progress against its full TMDB collection size. */
+/** One followed franchise with watched progress and unwatched parts from its TMDB collection. */
 export interface FranchiseProgress extends BarDatum {
 	seen: number;
 	total: number | null;
 	ratio: number | null;
 	completed: boolean;
 	liked: number;
+	/** Collection entries not present in the watched films for this franchise. */
+	missing: CollectionPart[];
 }
 
 function compareByCount(a: FranchiseProgress, b: FranchiseProgress): number {
@@ -45,19 +47,22 @@ export function franchiseProgress(
 	collections: CollectionParts[],
 	sort: FranchiseSort = 'count'
 ): FranchiseProgress[] {
-	const totals = new Map<string, number>();
+	const byId = new Map<string, CollectionParts>();
 	for (const collection of collections) {
-		if (collection.total > 0) totals.set(String(collection.id), collection.total);
+		byId.set(String(collection.id), collection);
 	}
 
 	const items: FranchiseProgress[] = byCollection(films).map((datum) => {
 		const seen = datum.count;
-		const known = totals.get(datum.key);
+		const collection = byId.get(datum.key);
+		const known = collection && collection.total > 0 ? collection.total : undefined;
 		const total = known !== undefined ? Math.max(known, seen) : null;
 		const ratio = total !== null ? seen / total : null;
 		const completed = total !== null && seen >= total;
 		const liked = datum.films.filter((film) => film.liked).length;
-		return { ...datum, seen, total, ratio, completed, liked };
+		const seenIds = new Set(datum.films.flatMap((film) => (film.tmdb ? [film.tmdb.tmdbId] : [])));
+		const missing = (collection?.parts ?? []).filter((part) => !seenIds.has(part.tmdbId));
+		return { ...datum, seen, total, ratio, completed, liked, missing };
 	});
 
 	return items.sort(COMPARATORS[sort]);

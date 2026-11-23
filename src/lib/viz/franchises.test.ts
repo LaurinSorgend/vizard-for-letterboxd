@@ -132,6 +132,41 @@ describe('franchiseProgress', () => {
 			'Unrated'
 		]);
 	});
+
+	it('lists unwatched parts from collection stubs in order and leaves completed franchises empty', () => {
+		const alien = { id: 8091, name: 'Alien Collection', posterPath: null };
+		const films = [
+			film({ name: 'Alien', tmdb: tmdb({ tmdbId: 348, collection: alien }) }),
+			film({ name: 'Aliens', tmdb: tmdb({ tmdbId: 679, collection: alien }) })
+		];
+		const collections: CollectionParts[] = [
+			{
+				id: 8091,
+				name: 'Alien Collection',
+				total: 4,
+				parts: [
+					{ tmdbId: 348, title: 'Alien', year: 1979, posterPath: null },
+					{ tmdbId: 679, title: 'Aliens', year: 1986, posterPath: null },
+					{ tmdbId: 8077, title: 'Alien³', year: 1992, posterPath: null },
+					{ tmdbId: 8078, title: 'Alien: Resurrection', year: 1997, posterPath: null }
+				]
+			}
+		];
+
+		const [partial] = franchiseProgress(films, collections, 'count');
+		expect(partial.missing.map((part) => part.title)).toEqual(['Alien³', 'Alien: Resurrection']);
+
+		const [complete] = franchiseProgress(
+			[
+				...films,
+				film({ name: 'Alien³', tmdb: tmdb({ tmdbId: 8077, collection: alien }) }),
+				film({ name: 'Alien: Resurrection', tmdb: tmdb({ tmdbId: 8078, collection: alien }) })
+			],
+			collections,
+			'count'
+		);
+		expect(complete.missing).toEqual([]);
+	});
 });
 
 describe('completedFranchiseCount', () => {
