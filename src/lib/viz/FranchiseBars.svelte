@@ -24,6 +24,10 @@
 	const rows = $derived(data.slice(0, paging.shown));
 	const maxSeen = $derived(Math.max(1, ...rows.map((d) => d.seen)));
 	const hasImages = $derived(data.some((d) => d.image !== undefined));
+	const hasCompleted = $derived(rows.some((d) => d.completed));
+	const countText = (d: FranchiseProgress): string =>
+		d.total !== null ? `${d.seen} / ${d.total}` : String(d.seen);
+	const countChars = $derived(Math.max(4, ...rows.map((d) => countText(d).length)));
 
 	function togglePin(key: string) {
 		pinnedKey = pinnedKey === key ? null : key;
@@ -93,10 +97,9 @@
 				<span class="bar" class:complete={d.completed} style="width: {barWidth(d)}%"></span>
 			</span>
 			<span class="val" class:complete={d.completed} data-numeric>
-				{#if d.total !== null}
-					{d.seen} / {d.total}{#if d.completed}<span aria-hidden="true"> ✓</span>{/if}
-				{:else}
-					{d.seen}
+				<span class="ratio" style="width: {countChars}ch">{countText(d)}</span>
+				{#if hasCompleted}
+					<span class="mark" aria-hidden="true">{d.completed ? '✓' : ''}</span>
 				{/if}
 			</span>
 		</button>
@@ -213,16 +216,24 @@
 		box-shadow: 0 0 0 1.5px var(--fg);
 	}
 	.val {
+		display: inline-flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.5ch;
 		font-size: var(--text-sm);
 		color: var(--fg-muted);
-		min-width: 7ch;
-		text-align: right;
 		white-space: nowrap;
 		flex-shrink: 0;
 	}
+	.ratio {
+		text-align: right;
+	}
+	.mark {
+		width: 1.2ch;
+		text-align: center;
+	}
 	.val.complete {
 		color: var(--fg);
-		font-weight: 600;
 	}
 	.avg {
 		font-size: var(--text-sm);

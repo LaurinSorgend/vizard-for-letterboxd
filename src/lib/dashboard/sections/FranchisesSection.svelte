@@ -14,10 +14,24 @@
 
 	let sort: FranchiseSort = $state('count');
 
-	const franchises = $derived(franchiseProgress(library.films, library.collections, sort));
+	const base = $derived(franchiseProgress(library.films, library.collections, 'count'));
+	const hasTotals = $derived(base.some((f) => f.total !== null));
+	const hasRatings = $derived(base.some((f) => f.avg !== null));
+	const sortOptions = $derived([
+		{ value: 'count' as const, label: 'Most watched' },
+		...(hasRatings ? [{ value: 'rating' as const, label: 'Most liked' }] : []),
+		...(hasTotals ? [{ value: 'completion' as const, label: 'Most complete' }] : [])
+	]);
+	const activeSort = $derived<FranchiseSort>(
+		sortOptions.some((option) => option.value === sort) ? sort : 'count'
+	);
+	const franchises = $derived(
+		activeSort === 'count'
+			? base
+			: franchiseProgress(library.films, library.collections, activeSort)
+	);
 	const share = $derived(collectionShare(library.films));
 	const completed = $derived(completedFranchiseCount(franchises));
-	const hasTotals = $derived(franchises.some((f) => f.total !== null));
 </script>
 
 {#if franchises.length > 0}
@@ -26,14 +40,11 @@
 			{share.inCollection} of your {share.total} films are part of a franchise{#if completed > 0};
 				{completed} completed{/if}.
 		</p>
-		{#if hasTotals}
+		{#if sortOptions.length > 1}
 			<MetricToggle
 				name="franchise-sort"
 				label="Sort franchises by"
-				options={[
-					{ value: 'count', label: 'Most watched' },
-					{ value: 'completion', label: 'Most complete' }
-				]}
+				options={sortOptions}
 				bind:value={sort}
 			/>
 		{/if}

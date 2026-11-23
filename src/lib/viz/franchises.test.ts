@@ -99,6 +99,39 @@ describe('franchiseProgress', () => {
 			'Unknown Few'
 		]);
 	});
+
+	it('sorts by average rating descending across 2+ film franchises, tie-breaking by hearts then seen', () => {
+		const ratedFranchise = (
+			id: number,
+			name: string,
+			entries: { rating: number | null; liked?: boolean }[]
+		) => {
+			const collection = { id, name, posterPath: null };
+			return entries.map((e) =>
+				film({ rating: e.rating, liked: e.liked ?? false, tmdb: tmdb({ collection }) })
+			);
+		};
+		const films = [
+			...ratedFranchise(1, 'Single Five Collection', [{ rating: 5, liked: true }]),
+			...ratedFranchise(2, 'Top Rated Collection', [{ rating: 5 }, { rating: 4.5 }]),
+			...ratedFranchise(3, 'Hearted Tie Collection', [
+				{ rating: 4, liked: true },
+				{ rating: 4, liked: true }
+			]),
+			...ratedFranchise(4, 'Plain Tie Collection', [{ rating: 4 }, { rating: 4 }, { rating: 4 }]),
+			...ratedFranchise(5, 'Lower Rated Collection', [{ rating: 3 }, { rating: 2.5 }]),
+			...ratedFranchise(6, 'Unrated Collection', [{ rating: null }, { rating: null }])
+		];
+
+		const items = franchiseProgress(films, [], 'rating');
+		expect(items.map((item) => item.label)).toEqual([
+			'Top Rated',
+			'Hearted Tie',
+			'Plain Tie',
+			'Lower Rated',
+			'Unrated'
+		]);
+	});
 });
 
 describe('completedFranchiseCount', () => {
