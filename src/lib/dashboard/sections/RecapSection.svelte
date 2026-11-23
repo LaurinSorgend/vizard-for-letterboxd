@@ -16,6 +16,7 @@
 			{years}
 			watchlist={library.watchlist}
 			collections={library.collections}
+			viewer={library.displayName}
 		/>
 	</Section>
 {/if}

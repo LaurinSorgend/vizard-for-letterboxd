@@ -2,6 +2,10 @@
 	import { imageUrl, webHref } from '$lib/film/links';
 	import { count, formatDayMonth, plural, starCaption, stars } from '$lib/format';
 	import { billedIn, LABELS, ratingsAcross, TOP_FILMS } from './labels';
+	import Wrapped from './Wrapped.svelte';
+	import { deliver, paletteFor } from './canvas';
+	import { cardFilename, summaryCard } from './cards';
+	import './wrapped.css';
 	import { buildYear } from '$lib/year';
 	import { isRunning } from '$lib/year/library';
 	import { alsoTrueLine } from '$lib/year/verdict';
@@ -16,18 +20,62 @@
 		films,
 		years,
 		watchlist = [],
-		collections = []
+		collections = [],
+		viewer = null
 	}: {
 		films: EnrichedFilm[];
 		/** Years worth a recap, newest first, from `recapYears`. */
 		years: number[];
 		watchlist?: WatchlistEntry[];
 		collections?: CollectionParts[];
+		viewer?: string | null;
 	} = $props();
 
 	let chosen: number | null = $state(null);
+	let deckOpen = $state(false);
+	let saving = $state(false);
+	let posterStatus: { text: string; error: boolean } | null = $state(null);
+
 	const year = $derived(chosen !== null && years.includes(chosen) ? chosen : (years[0] ?? null));
 	const built = $derived(year === null ? null : buildYear(films, year, { watchlist, collections }));
+	const deckData = $derived(built ? { ...built, viewer } : null);
+
+	function selectYear(next: number) {
+		chosen = next;
+		posterStatus = null;
+	}
+
+	function openDeck() {
+		if (!deckData) return;
+		posterStatus = null;
+		deckOpen = true;
+	}
+
+	async function savePoster() {
+		if (!deckData || saving) return;
+		const input = deckData;
+		const targetYear = input.library.year;
+		saving = true;
+		posterStatus = null;
+		try {
+			const canvas = await summaryCard(input, paletteFor('neutral'));
+			const name = cardFilename(targetYear);
+			const outcome = await deliver(canvas, name);
+			if (year === targetYear && outcome === 'saved') {
+				posterStatus = { text: `Saved as ${name}.`, error: false };
+			}
+		} catch (cause) {
+			if (year === targetYear) {
+				posterStatus = {
+					text: cause instanceof Error ? cause.message : 'The picture could not be rendered.',
+					error: true
+				};
+			}
+		} finally {
+			saving = false;
+		}
+	}
+
 	const recap = $derived.by(() => {
 		if (!built) return null;
 		const { library, personality } = built;
@@ -73,14 +121,34 @@
 	<div class="picker">
 		<label>
 			Year
-			<select value={recap.year} onchange={(event) => (chosen = Number(event.currentTarget.value))}>
+			<select
+				value={recap.year}
+				onchange={(event) => selectYear(Number(event.currentTarget.value))}
+			>
 				{#each years as option (option)}
 					<option value={option}>{option}</option>
 				{/each}
 			</select>
 		</label>
+		<div class="actions">
+			<button type="button" class="action primary" onclick={openDeck}>
+				Watch {recap.year} deck
+			</button>
+			<button type="button" class="action" onclick={savePoster} disabled={saving}>
+				{saving ? 'Rendering…' : `Save ${recap.year} poster`}
+			</button>
+		</div>
 		{#if recap.partial}
 			<span class="partial">{recap.year} is still running; this is the year so far.</span>
+		{/if}
+		{#if posterStatus}
+			<span
+				class="status"
+				class:error={posterStatus.error}
+				role={posterStatus.error ? 'alert' : 'status'}
+			>
+				{posterStatus.text}
+			</span>
 		{/if}
 	</div>
 
@@ -192,6 +260,10 @@
 			{/if}
 		</li>
 	</ul>
+
+	{#if deckOpen && deckData}
+		<Wrapped data={deckData} onclose={() => (deckOpen = false)} />
+	{/if}
 {/if}
 
 <style>
@@ -220,6 +292,42 @@
 	}
 	.partial {
 		color: var(--fg-muted);
+	}
+	.actions {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+	}
+	.action {
+		font: inherit;
+		font-size: var(--text-sm);
+		padding: 4px 10px;
+		color: var(--fg);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-strong);
+		cursor: pointer;
+	}
+	.action.primary {
+		border-color: var(--accent);
+	}
+	.action:hover:not(:disabled) {
+		background: var(--surface);
+	}
+	.action:disabled {
+		color: var(--fg-muted);
+		border-color: var(--border);
+		cursor: default;
+	}
+	.action:focus-visible {
+		outline: 2px solid var(--focus);
+		outline-offset: 2px;
+	}
+	.status {
+		color: var(--fg-secondary);
+	}
+	.status.error {
+		color: var(--error);
 	}
 
 	.deck {

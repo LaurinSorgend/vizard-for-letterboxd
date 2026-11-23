@@ -4,7 +4,7 @@
 	import Frame from './Frame.svelte';
 	import { assemble, buildDeck } from './deck';
 	import { deliver, paletteFrom } from './canvas';
-	import { storyCard, summaryCard } from './cards';
+	import { cardFilename, storyCard, summaryCard } from './cards';
 	import { posterRain } from './rain';
 	import { gateStyle, TRAY_TURN_MS } from './look';
 	import './wrapped.css';
@@ -75,7 +75,7 @@
 				kind === 'poster'
 					? await summaryCard(data, palette)
 					: await storyCard(scene, data, palette);
-			const name = `${year}-in-cinema${kind === 'scene' ? `-${scene.id}` : ''}.png`;
+			const name = cardFilename(year, kind === 'scene' ? scene.id : undefined);
 			const outcome = await deliver(canvas, name);
 			if (outcome === 'saved') message = `Saved as ${name}.`;
 		} catch (cause) {

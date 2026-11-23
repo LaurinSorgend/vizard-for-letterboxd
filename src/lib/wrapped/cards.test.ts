@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { statColumns } from './cards';
+import { cardFilename, statColumns } from './cards';
 
 /** Monospace-style widths: sixteen pixels a character, whatever the size. */
 const measure = (text: string) => text.length * 16;
@@ -30,5 +30,15 @@ describe('statColumns', () => {
 		);
 		expect(columns).toHaveLength(3);
 		expect(columns[0].value).toBe('A value far too l…');
+	});
+});
+
+describe('cardFilename', () => {
+	it('names the summary poster for a year', () => {
+		expect(cardFilename(2024)).toBe('2024-in-cinema.png');
+	});
+
+	it('includes the scene id for a single-frame story card', () => {
+		expect(cardFilename(2024, 'streak')).toBe('2024-in-cinema-streak.png');
 	});
 });

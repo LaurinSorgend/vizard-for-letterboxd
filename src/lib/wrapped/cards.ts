@@ -28,6 +28,11 @@ const POSTER = { width: 1080, height: 1350, mount: 56, strip: 136, margin: 124 }
 /** Printed on the mount of the card people actually hand around. */
 const SITE = 'vizard.sorgend.org';
 
+/** Filename for a saved summary poster or single-scene story card. */
+export function cardFilename(year: number, sceneId?: string): string {
+	return `${year}-in-cinema${sceneId ? `-${sceneId}` : ''}.png`;
+}
+
 function surface(width: number, height: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
 	const canvas = document.createElement('canvas');
 	canvas.width = width;

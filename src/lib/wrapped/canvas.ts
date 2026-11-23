@@ -1,5 +1,7 @@
 /** Low-level drawing helpers shared by the story card and the summary poster. */
 
+import type { Accent } from './look';
+
 export interface Palette {
 	/** The dark surround the slide is mounted in. */
 	room: string;
@@ -76,6 +78,23 @@ export function paletteFrom(element: Element): Palette {
 			accent: stack('--font-accent', FALLBACK_FACES.accent)
 		}
 	};
+}
+
+/**
+ * Reads the wrapped palette for a named stock without requiring an open deck dialog.
+ * Mounts a hidden probe carrying `data-hue` long enough to resolve `wrapped.css` tokens.
+ */
+export function paletteFor(hue: Accent = 'neutral'): Palette {
+	const probe = document.createElement('span');
+	probe.dataset.hue = hue;
+	probe.setAttribute('aria-hidden', 'true');
+	probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none';
+	document.body.append(probe);
+	try {
+		return paletteFrom(probe);
+	} finally {
+		probe.remove();
+	}
 }
 
 let probe: CanvasRenderingContext2D | null = null;
