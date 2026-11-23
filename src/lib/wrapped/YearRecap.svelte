@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { imageUrl, webHref } from '$lib/film/links';
-	import { count, formatDayMonth, plural, starCaption, stars } from '$lib/format';
+	import { count, formatDateRange, plural, starCaption, stars } from '$lib/format';
 	import { billedIn, LABELS, ratingsAcross, TOP_FILMS } from './labels';
 	import Wrapped from './Wrapped.svelte';
 	import { deliver, paletteFor } from './canvas';
@@ -242,7 +242,7 @@
 			{@render numberCard(
 				LABELS.streak,
 				plural(recap.streak.days, 'day'),
-				`${formatDayMonth(recap.streak.start)} to ${formatDayMonth(recap.streak.end)}.`
+				`${formatDateRange(recap.streak.start, recap.streak.end, recap.year)}.`
 			)}
 		{/if}
 		{@render numberCard(

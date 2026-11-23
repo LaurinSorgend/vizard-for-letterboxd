@@ -167,6 +167,7 @@ describe('watchlistAgeScene', () => {
 	it('computes the median across every dated entry, not just the oldest', () => {
 		const scene = watchlistAgeScene(deckOf(base({}, 20), 2025, { watchlist: agedWatchlist, now }));
 		expect(scene?.value).toBe('Aged 25');
+		expect(scene?.stats.find((stat) => stat.label === 'Added')?.value).toBe('21 December 2025');
 		expect(scene?.stats.find((stat) => stat.label === 'Waiting')?.value).toBe('25 days');
 		expect(scene?.stats.find((stat) => stat.label === 'Median age')?.value).toBe('13 days');
 	});

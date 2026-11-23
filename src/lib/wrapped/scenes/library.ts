@@ -9,7 +9,7 @@ import {
 	watchlistMaths,
 	writing
 } from '$lib/year/facts/library-facts';
-import { datePair, longDate } from './prose';
+import { datePair, fullDate } from './prose';
 import { releaseYear } from '$lib/film/release';
 import {
 	count,
@@ -92,9 +92,9 @@ export function watchlistAgeScene({ library }: DeckInput): Scene | null {
 		label: 'Longest on the list',
 		value: age.oldest.name,
 		valueKind: 'name',
-		note: `You added it on ${longDate(age.oldest.added, library.year)} and have not watched it since. That is ${formatDays(age.oldest.days)} of good intentions.`,
+		note: `You added it on ${fullDate(age.oldest.added)} and have not watched it since. That is ${formatDays(age.oldest.days)} of good intentions.`,
 		stats: [
-			{ label: 'Added', value: longDate(age.oldest.added, library.year) },
+			{ label: 'Added', value: fullDate(age.oldest.added) },
 			{ label: 'Waiting', value: formatDays(age.oldest.days) },
 			{ label: 'Median age', value: formatDays(age.medianDays) }
 		],

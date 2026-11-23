@@ -1,3 +1,4 @@
+import { formatShort } from '$lib/format';
 import { filmKey } from '$lib/ingest/film';
 import type { CustomList, EnrichedFilm } from '$lib/types';
 
@@ -44,13 +45,18 @@ export interface FilterChip {
 	label: string;
 }
 
+function formatFilterDate(iso: string): string {
+	return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? formatShort(iso) : iso;
+}
+
 /** Formats the active watch-date window into a short self-descriptive label. */
 function dateChipLabel(fromDate: string, toDate: string): string {
 	const match = /^(\d{4})-01-01$/.exec(fromDate);
 	if (match && toDate === `${match[1]}-12-31`) return `Watched: ${match[1]}`;
-	if (fromDate && toDate) return `Watched: ${fromDate} – ${toDate}`;
-	if (fromDate) return `Watched from ${fromDate}`;
-	return `Watched until ${toDate}`;
+	if (fromDate && toDate)
+		return `Watched: ${formatFilterDate(fromDate)} – ${formatFilterDate(toDate)}`;
+	if (fromDate) return `Watched from ${formatFilterDate(fromDate)}`;
+	return `Watched until ${formatFilterDate(toDate)}`;
 }
 
 /** Concise labels for each currently active filter, used in collapsed summary chips. */

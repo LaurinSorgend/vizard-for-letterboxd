@@ -62,9 +62,13 @@ export function starCaption(rating: number | null): string {
  * and print them as UTC.
  */
 
+function parseUtcDate(iso: string): Date {
+	return new Date(iso.includes('T') ? iso : `${iso}T00:00:00Z`);
+}
+
 /** "Mar 5, 2026". */
 export function formatShort(iso: string): string {
-	return new Date(iso).toLocaleDateString('en', {
+	return parseUtcDate(iso).toLocaleDateString('en', {
 		day: 'numeric',
 		month: 'short',
 		year: 'numeric',
@@ -74,11 +78,25 @@ export function formatShort(iso: string): string {
 
 /** "5 Mar", for dates whose year is already given. */
 export function formatDayMonth(iso: string): string {
-	return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', {
+	return parseUtcDate(iso).toLocaleDateString('en-GB', {
 		day: 'numeric',
 		month: 'short',
 		timeZone: 'UTC'
 	});
+}
+
+/**
+ * Formats a date range; omits the year only when `withinYear` is supplied and both endpoints fall
+ * inside that year, otherwise includes the year on both ends.
+ */
+export function formatDateRange(from: string, to: string, withinYear?: number): string {
+	const inside =
+		withinYear !== undefined &&
+		from.slice(0, 4) === String(withinYear) &&
+		to.slice(0, 4) === String(withinYear);
+	return inside
+		? `${formatDayMonth(from)} to ${formatDayMonth(to)}`
+		: `${formatShort(from)} to ${formatShort(to)}`;
 }
 
 /** A day count as a rough span: "12 days", "5 months", "3.2 years". */

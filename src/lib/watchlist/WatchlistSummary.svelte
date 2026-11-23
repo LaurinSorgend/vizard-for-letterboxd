@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { count, formatDays, noun, plural, runtimeLabel } from '$lib/format';
+	import { count, formatDays, formatShort, noun, plural, runtimeLabel } from '$lib/format';
 	import type { WatchlistSummary } from './summary';
 
 	let { summary, region }: { summary: WatchlistSummary; region: string } = $props();
@@ -81,7 +81,7 @@
 		}
 
 		if (summary.oldest) {
-			const detail = `${summary.oldest.name} (${summary.oldest.added.slice(0, 4)})`;
+			const detail = `${summary.oldest.name} · added ${formatShort(summary.oldest.added)}`;
 			list.push({
 				label: 'Oldest on list',
 				value: ageLabel(summary.oldest.daysAgo),

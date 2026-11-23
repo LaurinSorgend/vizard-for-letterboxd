@@ -282,14 +282,14 @@ describe('activeFilterChips & clearFilterChip', () => {
 
 		expect(
 			activeFilterChips(withFilters({ fromDate: '2024-03-01', toDate: '2024-06-15' }))
-		).toEqual([{ key: 'dates', label: 'Watched: 2024-03-01 – 2024-06-15' }]);
+		).toEqual([{ key: 'dates', label: 'Watched: Mar 1, 2024 – Jun 15, 2024' }]);
 
 		expect(activeFilterChips(withFilters({ fromDate: '2024-03-01' }))).toEqual([
-			{ key: 'dates', label: 'Watched from 2024-03-01' }
+			{ key: 'dates', label: 'Watched from Mar 1, 2024' }
 		]);
 
 		expect(activeFilterChips(withFilters({ toDate: '2024-06-15' }))).toEqual([
-			{ key: 'dates', label: 'Watched until 2024-06-15' }
+			{ key: 'dates', label: 'Watched until Jun 15, 2024' }
 		]);
 	});
 
