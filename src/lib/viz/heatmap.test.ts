@@ -6,7 +6,9 @@ import {
 	buildSeasonalHeatmap,
 	buildWeeklyHeatmap,
 	cellBin,
+	diaryYears,
 	heatScale,
+	type DayBuckets,
 	type HeatCell,
 	type HeatmapGrid
 } from './heatmap';
@@ -131,5 +133,40 @@ describe('cellBin', () => {
 		expect(binOn(busy, '2026-03-02')).toBe(binOn(alone, '2026-03-02'));
 		expect(binOn(busy, '2026-03-03')).toBeGreaterThan(binOn(busy, '2026-03-02'));
 		expect(binOn(busy, '2026-03-04')).toBeLessThan(binOn(busy, '2026-03-02'));
+	});
+});
+
+describe('diaryYears', () => {
+	it('returns an empty list for an empty map', () => {
+		expect(diaryYears(new Map())).toEqual([]);
+	});
+
+	it('deduplicates multiple entries within a single year', () => {
+		const byDay = bucketsByDay([film({ ...watched(['2026-01-10', '2026-07-04', '2026-12-31']) })]);
+		expect(diaryYears(byDay)).toEqual([2026]);
+	});
+
+	it('returns distinct years sorted newest first', () => {
+		const byDay = bucketsByDay([
+			film({ ...watched(['2021-05-01']) }),
+			film({ ...watched(['2026-03-02']) }),
+			film({ ...watched(['2024-08-19', '2021-11-11']) })
+		]);
+		expect(diaryYears(byDay)).toEqual([2026, 2024, 2021]);
+	});
+
+	it('ignores malformed day keys', () => {
+		const empty = { minutes: 0, films: [] };
+		const byDay: DayBuckets = new Map([
+			['', empty],
+			['not-a-date', empty],
+			['2025', empty],
+			['abcd-01-01', empty],
+			['2025-13-01', empty],
+			['2025-02-30', empty],
+			['2023-06-15', empty],
+			['2026-01-01', empty]
+		]);
+		expect(diaryYears(byDay)).toEqual([2026, 2023]);
 	});
 });

@@ -87,7 +87,7 @@ function emptyBucket(): Bucket {
 }
 
 /** Watch buckets keyed by calendar day (YYYY-MM-DD); the daily and weekly grids share one. */
-type DayBuckets = Map<string, Bucket>;
+export type DayBuckets = Map<string, Bucket>;
 
 function toUtcDate(iso: string): Date {
 	const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
@@ -151,6 +151,30 @@ export function bucketsByDay(films: EnrichedFilm[]): DayBuckets {
 		}
 	}
 	return days;
+}
+
+const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Distinct calendar years present in `byDay`, newest first. */
+export function diaryYears(byDay: DayBuckets): number[] {
+	const years = new Set<number>();
+	for (const day of byDay.keys()) {
+		const match = ISO_DAY.exec(day);
+		if (!match) continue;
+		const year = Number(match[1]);
+		const month = Number(match[2]);
+		const date = Number(match[3]);
+		const utc = new Date(Date.UTC(year, month - 1, date));
+		if (
+			utc.getUTCFullYear() !== year ||
+			utc.getUTCMonth() !== month - 1 ||
+			utc.getUTCDate() !== date
+		) {
+			continue;
+		}
+		years.add(year);
+	}
+	return [...years].sort((a, b) => b - a);
 }
 
 /** Week column (0-based, Monday-anchored) of a date within its own calendar year. */
