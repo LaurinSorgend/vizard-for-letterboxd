@@ -10,10 +10,10 @@
 
 ## Larger features
 
-- [ ] Global dashboard filter bar (year/date range, movies vs. series, diary-logged only, tag, hearted only)
-- [ ] "Best match for your taste" sort in `Watchlist` (reusing `buildTasteProfile` from `releases/similarity.ts`) + watchlist backlog/streaming-coverage summary
-- [ ] Two-library comparison ("Compare with a friend"): taste overlap, biggest disagreements, shared directors/genres, and "watch together" watchlist intersections
-- [ ] Parse Letterboxd custom lists (`lists/*.csv`) for list stats and filtering
+- [x] Global dashboard filter bar (year/date range, movies vs. series, diary-logged only, tag, hearted only)
+- [x] "Best match for your taste" sort in `Watchlist` (reusing `buildTasteProfile` from `releases/similarity.ts`) + watchlist backlog/streaming-coverage summary
+- [x] Two-library comparison ("Compare with a friend"): taste overlap, biggest disagreements, shared directors/genres, and "watch together" watchlist intersections
+- [x] Parse Letterboxd custom lists (`lists/*.csv`) for list stats and filtering
 - [ ] Add search and facet filters to `Mosaic` ("Every film you have watched") and an enriched CSV/JSON export of the library
 
 ## Technical & UX polish

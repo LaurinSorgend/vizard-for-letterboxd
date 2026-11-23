@@ -7,6 +7,9 @@
 	import RememberToggle from '$lib/RememberToggle.svelte';
 	import ThemeSwitch from '$lib/ThemeSwitch.svelte';
 	import UsernameForm from '$lib/UsernameForm.svelte';
+	import CompareView from '$lib/compare/CompareView.svelte';
+	import { FriendLibrary } from '$lib/compare/friend.svelte';
+	import FilterBar from '$lib/dashboard/FilterBar.svelte';
 	import Section from '$lib/dashboard/Section.svelte';
 	import SectionNav from '$lib/dashboard/SectionNav.svelte';
 	import SummaryTiles from '$lib/dashboard/SummaryTiles.svelte';
@@ -17,6 +20,7 @@
 	import GenresSection from '$lib/dashboard/sections/GenresSection.svelte';
 	import LagSection from '$lib/dashboard/sections/LagSection.svelte';
 	import LengthSection from '$lib/dashboard/sections/LengthSection.svelte';
+	import ListsSection from '$lib/dashboard/sections/ListsSection.svelte';
 	import MilestonesSection from '$lib/dashboard/sections/MilestonesSection.svelte';
 	import MosaicSection from '$lib/dashboard/sections/MosaicSection.svelte';
 	import NetworkSection from '$lib/dashboard/sections/NetworkSection.svelte';
@@ -43,12 +47,13 @@
 	import WrappedEntry from '$lib/wrapped/WrappedEntry.svelte';
 
 	const library = setLibrary(new Library());
+	const friend = new FriendLibrary();
 	setSections(new SectionRegistry());
 
-	type View = 'stats' | 'watchlist' | 'releases';
+	type View = 'stats' | 'watchlist' | 'releases' | 'compare';
 	const view: View = $derived.by(() => {
 		const v = page.url.searchParams.get('view');
-		return v === 'watchlist' || v === 'releases' ? v : 'stats';
+		return v === 'watchlist' || v === 'releases' || v === 'compare' ? v : 'stats';
 	});
 	const { stage, done, total } = $derived(library.progress);
 
@@ -183,12 +188,24 @@
 			options={[
 				{ value: 'stats', label: 'Your stats' },
 				{ value: 'watchlist', label: `Your watchlist (${library.watchlist.length})` },
-				{ value: 'releases', label: 'Release calendar' }
+				{ value: 'releases', label: 'Release calendar' },
+				{ value: 'compare', label: 'Compare' }
 			]}
 			bind:value={() => view, showView}
 		/>
 
-		{#if view !== 'stats'}
+		{#if view === 'compare'}
+			<Section id="compare" title="Compare with a friend">
+				<CompareView
+					you={{
+						name: library.displayName ?? 'You',
+						films: library.films,
+						watchlist: library.watchlist
+					}}
+					{friend}
+				/>
+			</Section>
+		{:else if view !== 'stats'}
 			<Section id={view} title={view === 'releases' ? 'Upcoming releases' : 'Your watchlist'}>
 				{#if library.watchlist.length === 0 && (view === 'watchlist' || library.films.length === 0)}
 					<div class="empty-watchlist form-controls">
@@ -198,37 +215,56 @@
 				{:else if view === 'releases'}
 					<ReleaseCalendar watchlist={library.watchlist} films={library.films} />
 				{:else}
-					<Watchlist watchlist={library.watchlist} />
+					<Watchlist watchlist={library.watchlist} films={library.films} />
 				{/if}
 			</Section>
 		{:else}
 			<SectionNav />
-			<SummaryTiles />
-			<WorldSection />
-			<RecentSection />
-			<RatingsSection />
-			<CriticsSection />
-			<YearsSection />
-			<LagSection />
-			<WhenSection />
-			<RuntimeSection />
-			<LengthSection />
-			<RewatchesSection />
-			<ReviewsSection />
-			<GenresSection />
-			<FranchisesSection />
-			<ThemesSection />
-			<TagsSection />
-			<ObscuritySection />
-			<QuadrantsSection />
-			<PeopleSection />
-			<PeopleTimelineSection />
-			<NetworkSection />
-			<MosaicSection />
-			<MilestonesSection />
-			<RecapSection />
-			<RecommendationsSection />
-			<Unmatched />
+			<FilterBar
+				films={library.films}
+				filteredCount={library.filteredFilms.length}
+				lists={library.lists}
+				bind:filters={library.filters}
+			/>
+			{#if library.isFiltered && library.filteredFilms.length === 0}
+				<div class="empty-filter form-controls" role="status">
+					<p>No films match the current filters.</p>
+					<button type="button" onclick={() => library.resetFilters()}>Reset filters</button>
+				</div>
+			{:else}
+				<SummaryTiles />
+				<WorldSection />
+				<RecentSection />
+				<RatingsSection />
+				<CriticsSection />
+				<YearsSection />
+				<LagSection />
+				<WhenSection />
+				<RuntimeSection />
+				<LengthSection />
+				<RewatchesSection />
+				<ReviewsSection />
+				<GenresSection />
+				<FranchisesSection />
+				<ThemesSection />
+				<TagsSection />
+				<ListsSection
+					lists={library.lists}
+					films={library.films}
+					activeListId={library.filters.listId}
+					onfilterlist={(id) => library.setListFilter(id)}
+				/>
+				<ObscuritySection />
+				<QuadrantsSection />
+				<PeopleSection />
+				<PeopleTimelineSection />
+				<NetworkSection />
+				<MosaicSection />
+				<MilestonesSection />
+				<RecapSection />
+				<RecommendationsSection />
+				<Unmatched />
+			{/if}
 		{/if}
 	{/if}
 </main>
@@ -311,7 +347,8 @@
 		color: var(--fg-secondary);
 		margin: 0 0 24px;
 	}
-	.empty-watchlist {
+	.empty-watchlist,
+	.empty-filter {
 		padding: 24px 0;
 		color: var(--fg-secondary);
 	}
