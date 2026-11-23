@@ -55,7 +55,10 @@
 					style="height: {Math.max(3, (d.count / max) * 140)}px"
 				>
 					{#if split}
-						<span class="part" style="height: {share(d)}%"></span>
+						{@const pct = share(d)}
+						{#if pct > 0}
+							<span class="part" class:partial={pct < 100} style="height: {pct}%"></span>
+						{/if}
 					{/if}
 				</span>
 				<span class="lab" data-numeric>{i % showEvery === 0 ? d.label : ''}</span>
@@ -114,7 +117,10 @@
 	}
 	.part {
 		width: 100%;
-		background: var(--liked);
+		min-height: 2px;
+	}
+	.part.partial {
+		border-top: 1px solid var(--bg);
 	}
 	.legend {
 		display: flex;
@@ -129,12 +135,14 @@
 		gap: 6px;
 	}
 	.swatch {
-		width: 10px;
-		height: 10px;
+		width: 12px;
+		height: 12px;
 		background: var(--bar);
 	}
+	.part,
 	.swatch.highlighted {
-		background: var(--liked);
+		background: repeating-linear-gradient(-45deg, var(--liked) 0 3px, var(--bg) 3px 5px);
+		box-shadow: inset 0 0 0 1px var(--liked);
 	}
 	.col:hover .bar {
 		filter: brightness(1.15);
