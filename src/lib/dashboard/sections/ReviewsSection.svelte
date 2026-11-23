@@ -5,6 +5,7 @@
 	import FilmLink from '$lib/viz/chart/FilmLink.svelte';
 	import { pager } from '$lib/viz/pager.svelte';
 	import { filterReviews, reviewSummary, type ReviewSort } from '$lib/viz/personal';
+	import ReviewBody from '$lib/viz/ReviewBody.svelte';
 	import ShowMore from '$lib/viz/ShowMore.svelte';
 
 	const REVIEW_LIMIT = 8;
@@ -101,17 +102,19 @@
 							</div>
 						</div>
 
-						{#if isLongReview(entry.text)}
+						{#if isLongReview(entry.plain)}
 							<details class="expandable">
 								<summary>
-									<span class="preview">{previewText(entry.text)}</span>
+									<span class="preview">{previewText(entry.plain)}</span>
 									<span class="toggle more-label">Read full review</span>
 									<span class="toggle less-label">Show less</span>
 								</summary>
-								<p class="body">{entry.text}</p>
+								<div class="full">
+									<ReviewBody text={entry.text} />
+								</div>
 							</details>
 						{:else}
-							<p class="body">{entry.text}</p>
+							<ReviewBody text={entry.text} />
 						{/if}
 					</li>
 				{/each}
@@ -192,14 +195,6 @@
 		font-size: var(--text-sm);
 		color: var(--fg-secondary);
 	}
-	.body {
-		margin: 0;
-		font-size: var(--text-base);
-		line-height: var(--leading-normal);
-		max-width: var(--measure);
-		white-space: pre-line;
-		color: var(--fg);
-	}
 	.expandable summary {
 		cursor: pointer;
 		list-style: none;
@@ -228,7 +223,7 @@
 	.expandable:not([open]) .less-label {
 		display: none;
 	}
-	.expandable[open] .body {
+	.expandable[open] .full {
 		margin-top: 6px;
 	}
 	.empty {

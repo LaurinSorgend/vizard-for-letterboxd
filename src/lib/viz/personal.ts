@@ -2,6 +2,7 @@ import { latestWatch } from '$lib/film/diary';
 import { avgRating, grouped, type BarDatum } from '$lib/film/tally';
 import { DAY_MS } from '$lib/math';
 import type { EnrichedFilm } from '$lib/types';
+import { plainReviewText } from './reviewMarkup';
 
 export interface RewatchShift {
 	film: EnrichedFilm;
@@ -22,6 +23,7 @@ export interface RewatchShiftSummary {
 export interface ReviewEntry {
 	film: EnrichedFilm;
 	text: string;
+	plain: string;
 	words: number;
 	date: string | null;
 }
@@ -128,7 +130,8 @@ export function reviewSummary(films: EnrichedFilm[]): ReviewSummary {
 
 	for (const film of films) {
 		const text = film.review?.trim() ?? '';
-		if (text.length === 0) {
+		const plain = text.length > 0 ? plainReviewText(text) : '';
+		if (plain.length === 0) {
 			unreviewed.push(film);
 			continue;
 		}
@@ -136,7 +139,8 @@ export function reviewSummary(films: EnrichedFilm[]): ReviewSummary {
 		entries.push({
 			film,
 			text,
-			words: wordCount(text),
+			plain,
+			words: wordCount(plain),
 			date: latestWatch(film)
 		});
 	}
@@ -172,7 +176,7 @@ export function filterReviews(
 			: entries.filter(
 					(entry) =>
 						entry.film.name.toLowerCase().includes(needle) ||
-						entry.text.toLowerCase().includes(needle)
+						entry.plain.toLowerCase().includes(needle)
 				);
 
 	return matched.sort((a, b) => {

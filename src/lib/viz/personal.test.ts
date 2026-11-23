@@ -265,4 +265,20 @@ describe('reviewSummary and filterReviews', () => {
 			'Undated Epic'
 		]);
 	});
+
+	it('strips Letterboxd HTML tags from plain text, word counts, and search', () => {
+		const tagged = film({
+			name: 'Persona',
+			rating: 5,
+			review: '<blockquote><i>Two</i> <b>faces</b></blockquote>',
+			...watched(['2025-07-01'])
+		});
+		const { entries } = reviewSummary([tagged]);
+		expect(entries[0]).toMatchObject({
+			plain: 'Two faces',
+			words: 2
+		});
+		expect(filterReviews(entries, 'blockquote', 'recent')).toEqual([]);
+		expect(filterReviews(entries, 'faces', 'recent')).toHaveLength(1);
+	});
 });
