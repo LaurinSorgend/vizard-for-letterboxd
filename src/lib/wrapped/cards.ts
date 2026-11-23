@@ -185,57 +185,194 @@ function posterBlock(
 	};
 }
 
+const BAR_LABEL_SIZE = 32;
+const BAR_VALUE_SIZE = 28;
+const BAR_ROW_HEIGHT = 56;
+const BAR_TRACK_HEIGHT = 24;
+const BAR_LABEL_GAP = 20;
+const BAR_VALUE_GAP = 16;
+const BAR_MIN_LABEL_WIDTH = 160;
+const BAR_MAX_LABEL_WIDTH = 300;
+const BAR_MIN_VALUE_WIDTH = 64;
+const BAR_MAX_VALUE_WIDTH = 140;
+const DENSE_LABEL_SIZES = [24, 22, 20, 18, 16, 14] as const;
+
+/** Trims `text` with an ellipsis until `measure` fits inside `maxWidth` pixels. */
+export function truncateText(
+	text: string,
+	maxWidth: number,
+	measure: (value: string) => number
+): string {
+	if (maxWidth <= 0) return '';
+	if (measure(text) <= maxWidth) return text;
+	let trimmed = text.trimEnd();
+	while (trimmed.length > 1 && measure(`${trimmed}…`) > maxWidth) {
+		trimmed = trimmed.slice(0, -1).trimEnd();
+	}
+	return `${trimmed}…`;
+}
+
+export interface HorizontalBarRow {
+	label: string;
+	value: string;
+	share: number;
+}
+
+export interface HorizontalBarLayout {
+	labelWidth: number;
+	trackX: number;
+	trackWidth: number;
+	valueWidth: number;
+	rowHeight: number;
+	trackHeight: number;
+	rows: HorizontalBarRow[];
+}
+
+/**
+ * Computes non-overlapping column geometry for horizontal bar rows, clamping long labels and
+ * values with an ellipsis so neither ever prints over the bar track.
+ */
+export function horizontalBarLayout(
+	bars: { label: string; value: string; share: number }[],
+	measureTotal: number,
+	measureLabel: (text: string) => number,
+	measureValue: (text: string) => number
+): HorizontalBarLayout {
+	const widestValue = bars.reduce((max, bar) => Math.max(max, measureValue(bar.value)), 0);
+	const valueWidth = Math.min(
+		BAR_MAX_VALUE_WIDTH,
+		Math.max(BAR_MIN_VALUE_WIDTH, Math.ceil(widestValue))
+	);
+	const widestLabel = bars.reduce((max, bar) => Math.max(max, measureLabel(bar.label)), 0);
+	const maxAllowedLabel = Math.min(
+		BAR_MAX_LABEL_WIDTH,
+		Math.max(BAR_MIN_LABEL_WIDTH, measureTotal - valueWidth - BAR_LABEL_GAP - BAR_VALUE_GAP - 200)
+	);
+	const labelWidth = Math.min(
+		maxAllowedLabel,
+		Math.max(BAR_MIN_LABEL_WIDTH, Math.ceil(widestLabel))
+	);
+	const trackX = STORY.margin + labelWidth + BAR_LABEL_GAP;
+	const trackWidth = Math.max(
+		80,
+		measureTotal - labelWidth - BAR_LABEL_GAP - BAR_VALUE_GAP - valueWidth
+	);
+	return {
+		labelWidth,
+		trackX,
+		trackWidth,
+		valueWidth,
+		rowHeight: BAR_ROW_HEIGHT,
+		trackHeight: BAR_TRACK_HEIGHT,
+		rows: bars.map((bar) => ({
+			label: truncateText(bar.label, labelWidth, measureLabel),
+			value: truncateText(bar.value, valueWidth, measureValue),
+			share: bar.share
+		}))
+	};
+}
+
+/** Picks a readable font size and label stride so dense vertical-bar axis labels never collide. */
+export function denseBarLabelSpec(
+	labels: string[],
+	slotWidth: number,
+	measureAt: (text: string, size: number) => number
+): { fontSize: number; step: number } {
+	const available = Math.max(12, slotWidth - 4);
+	for (const size of DENSE_LABEL_SIZES) {
+		const widest = labels.reduce((max, label) => Math.max(max, measureAt(label, size)), 0);
+		if (widest <= available) return { fontSize: size, step: 1 };
+	}
+	const smallest = DENSE_LABEL_SIZES[DENSE_LABEL_SIZES.length - 1];
+	const widest = labels.reduce((max, label) => Math.max(max, measureAt(label, smallest)), 0);
+	const step = Math.max(1, Math.ceil((widest + 6) / Math.max(1, slotWidth)));
+	return { fontSize: smallest, step };
+}
+
+function denseBarBlock(
+	ctx: CanvasRenderingContext2D,
+	bars: { label: string; value: string; share: number }[],
+	measure: number,
+	palette: Palette
+): Block {
+	const gap = 8;
+	const width = (measure - gap * (bars.length - 1)) / bars.length;
+	const tall = 190;
+	const { fontSize, step } = denseBarLabelSpec(
+		bars.map((bar) => bar.label),
+		width + gap,
+		(text, size) => {
+			ctx.font = font(palette.faces, 'mono', size);
+			return ctx.measureText(text).width;
+		}
+	);
+	return {
+		height: tall + 24 + fontSize,
+		draw: (y) => {
+			ctx.save();
+			ctx.textBaseline = 'top';
+			bars.forEach((bar, i) => {
+				const x = STORY.margin + i * (width + gap);
+				const filled = Math.max(4, bar.share * tall);
+				ctx.fillStyle = palette.accent;
+				ctx.fillRect(x, y + tall - filled, width, filled);
+				ctx.fillStyle = palette.line;
+				ctx.fillRect(x, y + tall, width, 2);
+				if (i % step !== 0 && i !== bars.length - 1) return;
+				ctx.font = font(palette.faces, 'mono', fontSize);
+				ctx.fillStyle = palette.muted;
+				ctx.textAlign = 'center';
+				ctx.fillText(bar.label, x + width / 2, y + tall + 14);
+			});
+			ctx.restore();
+		}
+	};
+}
+
 function barBlock(
 	ctx: CanvasRenderingContext2D,
 	bars: { label: string; value: string; share: number }[],
 	palette: Palette
 ): Block {
 	const measure = STORY.width - STORY.margin * 2;
-	if (isDense(bars)) {
-		const gap = 8;
-		const width = (measure - gap * (bars.length - 1)) / bars.length;
-		const tall = 190;
-		return {
-			height: tall + 48,
-			draw: (y) => {
-				bars.forEach((bar, i) => {
-					const x = STORY.margin + i * (width + gap);
-					const filled = Math.max(4, bar.share * tall);
-					ctx.fillStyle = palette.accent;
-					ctx.fillRect(x, y + tall - filled, width, filled);
-					ctx.fillStyle = palette.line;
-					ctx.fillRect(x, y + tall, width, 2);
-					ctx.font = font(palette.faces, 'mono', 24);
-					ctx.fillStyle = palette.muted;
-					ctx.textAlign = 'center';
-					ctx.fillText(bar.label, x + width / 2, y + tall + 14);
-					ctx.textAlign = 'left';
-				});
-			}
-		};
-	}
-	const row = 60;
+	if (isDense(bars)) return denseBarBlock(ctx, bars, measure, palette);
+
+	const measureBody = (text: string) => {
+		ctx.font = font(palette.faces, 'body', BAR_LABEL_SIZE);
+		return ctx.measureText(text).width;
+	};
+	const measureMono = (text: string) => {
+		ctx.font = font(palette.faces, 'mono', BAR_VALUE_SIZE);
+		return ctx.measureText(text).width;
+	};
+	const layout = horizontalBarLayout(bars, measure, measureBody, measureMono);
+
 	return {
-		height: bars.length * row,
+		height: layout.rows.length * layout.rowHeight,
 		draw: (y) => {
-			bars.forEach((bar, i) => {
-				const top = y + i * row;
-				ctx.font = font(palette.faces, 'body', 32);
+			ctx.save();
+			ctx.textBaseline = 'middle';
+			layout.rows.forEach((bar, i) => {
+				const midY = y + i * layout.rowHeight + layout.rowHeight / 2;
+				const trackTop = midY - layout.trackHeight / 2;
+
+				ctx.font = font(palette.faces, 'body', BAR_LABEL_SIZE);
 				ctx.fillStyle = palette.ink;
-				ctx.fillText(bar.label, STORY.margin, top);
-				const trackX = STORY.margin + 300;
-				const trackWidth = measure - 300 - 90;
+				ctx.textAlign = 'left';
+				ctx.fillText(bar.label, STORY.margin, midY);
+
 				ctx.fillStyle = rgba(palette.ink, 0.12);
-				ctx.fillRect(trackX, top + 8, trackWidth, 26);
-				const filled = Math.max(4, trackWidth * bar.share);
+				ctx.fillRect(layout.trackX, trackTop, layout.trackWidth, layout.trackHeight);
+				const filled = Math.max(4, layout.trackWidth * bar.share);
 				ctx.fillStyle = palette.accent;
-				ctx.fillRect(trackX, top + 8, filled, 26);
-				ctx.font = font(palette.faces, 'mono', 28);
+				ctx.fillRect(layout.trackX, trackTop, filled, layout.trackHeight);
+
+				ctx.font = font(palette.faces, 'mono', BAR_VALUE_SIZE);
 				ctx.fillStyle = palette.muted;
 				ctx.textAlign = 'right';
-				ctx.fillText(bar.value, STORY.width - STORY.margin, top + 6);
-				ctx.textAlign = 'left';
+				ctx.fillText(bar.value, STORY.width - STORY.margin, midY);
 			});
+			ctx.restore();
 		}
 	};
 }
@@ -371,7 +508,7 @@ function drawSummaryGrid(
 		ctx.fillText(stat.label, x, y);
 		ctx.font = font(palette.faces, 'mono', 38);
 		ctx.fillStyle = palette.ink;
-		const value = stat.value.length > 20 ? `${stat.value.slice(0, 19)}…` : stat.value;
+		const value = truncateText(stat.value, column - 24, (text) => ctx.measureText(text).width);
 		ctx.fillText(value, x, y + 30);
 	});
 }
