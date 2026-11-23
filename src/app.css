@@ -41,8 +41,8 @@
 	--surface: var(--ctp-surface0);
 	--border: var(--ctp-surface1);
 	--border-strong: var(--ctp-overlay0);
-	/* Bars that are not the lead: quiet, so the accent marks only the entry that matters. */
-	--bar: var(--ctp-overlay1);
+	/* Bars that are not the lead: Teal by default; swaps to Mauve when Teal is the accent. */
+	--bar: var(--ctp-teal);
 	--fg: var(--ctp-text);
 	/* Subtext1 for both: Subtext0/Overlay1 fall below WCAG AA (4.5:1) on Latte Base. */
 	--fg-secondary: var(--ctp-subtext1);
@@ -291,6 +291,7 @@
 }
 :root[data-accent='teal'] {
 	--accent: var(--ctp-teal);
+	--bar: var(--ctp-mauve);
 }
 :root[data-accent='sky'] {
 	--accent: var(--ctp-sky);

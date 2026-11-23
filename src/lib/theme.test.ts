@@ -35,4 +35,22 @@ describe('app.css', () => {
 		expect(styled.length).toBeGreaterThan(0);
 		for (const flavor of styled) expect(values(FLAVORS)).toContain(flavor);
 	});
+
+	it('keeps --bar distinct from --accent and --liked for every accent', () => {
+		const token = (block: string, prop: string) =>
+			block.match(new RegExp(`${prop}:\\s*var\\((--ctp-[a-z0-9]+)\\)`))?.[1];
+		const defaultBar = token(css, '--bar');
+		const liked = token(css, '--liked');
+		expect(defaultBar).toBeDefined();
+		expect(defaultBar).not.toBe(liked);
+
+		for (const { value } of ACCENTS) {
+			const block =
+				css.match(new RegExp(`:root\\[data-accent='${value}'\\]\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+			const accent = token(block, '--accent');
+			const bar = token(block, '--bar') ?? defaultBar;
+			expect(bar).not.toBe(accent);
+			expect(bar).not.toBe(liked);
+		}
+	});
 });
