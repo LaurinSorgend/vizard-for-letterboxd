@@ -1,54 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { film, watched } from '$lib/testing/fixtures';
-import {
-	byTag,
-	filterReviews,
-	reviewSummary,
-	rewatchShifts,
-	rewatchShiftSummary,
-	taggedFilmCount
-} from './personal';
+import { filterReviews, reviewSummary, rewatchAnalysis } from './personal';
 
-describe('byTag', () => {
-	it('groups films by trimmed non-empty tags, sorted by count desc then label', () => {
-		const a = film({ name: 'A', rating: 4, tags: ['cinema', '  35mm  ', '', '   '] });
-		const b = film({ name: 'B', rating: 3, tags: ['cinema', 'festival'] });
-		const c = film({ name: 'C', rating: 5, tags: ['35mm'] });
-
-		const result = byTag([a, b, c]);
-		expect(result.map((d) => ({ label: d.label, count: d.count, avg: d.avg }))).toEqual([
-			{ label: '35mm', count: 2, avg: 4.5 },
-			{ label: 'cinema', count: 2, avg: 3.5 },
-			{ label: 'festival', count: 1, avg: 3 }
-		]);
-	});
-
-	it('counts each film only once per tag even with duplicates on the same film', () => {
-		const repeated = film({ rating: 4, tags: ['cinema', ' cinema ', 'cinema'] });
-		const result = byTag([repeated]);
-		expect(result).toHaveLength(1);
-		expect(result[0]).toMatchObject({ key: 'cinema', label: 'cinema', count: 1, avg: 4 });
-		expect(result[0].films).toEqual([repeated]);
-	});
-
-	it('returns empty and zero count when films only have blank tags', () => {
-		const films = [film({ tags: ['', '   '] }), film({ tags: [] })];
-		expect(byTag(films)).toEqual([]);
-		expect(taggedFilmCount(films)).toBe(0);
-	});
-
-	it('counts films with at least one non-empty tag', () => {
-		const films = [
-			film({ tags: ['cinema'] }),
-			film({ tags: ['   ', 'festival'] }),
-			film({ tags: ['   '] }),
-			film({ tags: [] })
-		];
-		expect(taggedFilmCount(films)).toBe(2);
-	});
-});
-
-describe('rewatchShifts', () => {
+describe('rewatchAnalysis', () => {
 	it('compares earliest and latest dated rated entries regardless of diary order', () => {
 		const climber = film({
 			name: 'Vertigo',
@@ -60,21 +14,26 @@ describe('rewatchShifts', () => {
 			]
 		});
 
-		const shifts = rewatchShifts([climber]);
-		expect(shifts).toEqual([
-			{
-				film: climber,
-				firstDate: '2020-01-01',
-				firstRating: 3.5,
-				latestDate: '2025-01-11',
-				latestRating: 5,
-				delta: 1.5,
-				spanDays: 1837
-			}
-		]);
+		const analysis = rewatchAnalysis([climber]);
+		expect(analysis).toEqual({
+			shifts: [
+				{
+					film: climber,
+					firstDate: '2020-01-01',
+					firstRating: 3.5,
+					latestDate: '2025-01-11',
+					latestRating: 5,
+					delta: 1.5,
+					spanDays: 1837
+				}
+			],
+			improved: 1,
+			dropped: 0,
+			unchanged: 0
+		});
 	});
 
-	it('ignores unrated entries, single-entry rewatches, and blank dates', () => {
+	it('ignores unrated entries, single-entry rewatches, and malformed dates', () => {
 		const oneRated = film({
 			name: 'Half Rated',
 			watchedDates: ['2021-01-01', '2024-01-01'],
@@ -89,16 +48,17 @@ describe('rewatchShifts', () => {
 			watchedDates: ['2024-05-01'],
 			entries: [{ date: '2024-05-01', rating: 4.5, rewatch: true }]
 		});
-		const blankDate = film({
+		const badDate = film({
 			name: 'Bad Date',
+			watchedDates: ['2024-02-30', '2024-05-01'],
 			entries: [
-				{ date: '', rating: 2, rewatch: false },
+				{ date: '2024-02-30', rating: 2, rewatch: false },
 				{ date: '2024-05-01', rating: 4, rewatch: true }
 			]
 		});
 
-		expect(rewatchShifts([oneRated, singleEntryRewatch, blankDate])).toEqual([]);
-		expect(rewatchShiftSummary([oneRated, singleEntryRewatch, blankDate])).toEqual({
+		expect(rewatchAnalysis([oneRated, singleEntryRewatch, badDate])).toEqual({
+			shifts: [],
 			improved: 0,
 			dropped: 0,
 			unchanged: 0
@@ -108,6 +68,7 @@ describe('rewatchShifts', () => {
 	it('sorts by absolute delta desc, then latestDate desc, then name, and summarizes unchanged', () => {
 		const bigDrop = film({
 			name: 'Zebra',
+			watchedDates: ['2020-01-01', '2023-01-01'],
 			entries: [
 				{ date: '2020-01-01', rating: 4.5, rewatch: false },
 				{ date: '2023-01-01', rating: 2.5, rewatch: true }
@@ -115,6 +76,7 @@ describe('rewatchShifts', () => {
 		});
 		const newerRise = film({
 			name: 'Bravo',
+			watchedDates: ['2021-01-01', '2025-06-01'],
 			entries: [
 				{ date: '2021-01-01', rating: 3, rewatch: false },
 				{ date: '2025-06-01', rating: 4, rewatch: true }
@@ -122,6 +84,7 @@ describe('rewatchShifts', () => {
 		});
 		const sameDateAlpha = film({
 			name: 'Alpha',
+			watchedDates: ['2022-01-01', '2025-06-01'],
 			entries: [
 				{ date: '2022-01-01', rating: 3, rewatch: false },
 				{ date: '2025-06-01', rating: 4, rewatch: true }
@@ -129,6 +92,7 @@ describe('rewatchShifts', () => {
 		});
 		const olderRise = film({
 			name: 'Charlie',
+			watchedDates: ['2019-01-01', '2024-01-01'],
 			entries: [
 				{ date: '2019-01-01', rating: 2, rewatch: false },
 				{ date: '2024-01-01', rating: 3, rewatch: true }
@@ -136,24 +100,20 @@ describe('rewatchShifts', () => {
 		});
 		const steady = film({
 			name: 'Steady',
+			watchedDates: ['2020-01-01', '2024-01-01'],
 			entries: [
 				{ date: '2020-01-01', rating: 4, rewatch: false },
 				{ date: '2024-01-01', rating: 4, rewatch: true }
 			]
 		});
 
-		const films = [steady, olderRise, newerRise, sameDateAlpha, bigDrop];
-		expect(rewatchShifts(films).map((s) => s.film.name)).toEqual([
-			'Zebra',
-			'Alpha',
-			'Bravo',
-			'Charlie'
-		]);
-		expect(rewatchShiftSummary(films)).toEqual({
-			improved: 3,
-			dropped: 1,
-			unchanged: 1
-		});
+		const analysis = rewatchAnalysis([steady, olderRise, newerRise, sameDateAlpha, bigDrop]);
+		expect(analysis.shifts.map((s) => s.film.name)).toEqual(['Zebra', 'Alpha', 'Bravo', 'Charlie']);
+		expect({
+			improved: analysis.improved,
+			dropped: analysis.dropped,
+			unchanged: analysis.unchanged
+		}).toEqual({ improved: 3, dropped: 1, unchanged: 1 });
 	});
 });
 
@@ -175,7 +135,7 @@ describe('reviewSummary and filterReviews', () => {
 		const unreviewed = film({ name: 'Silent', rating: 3, review: null });
 
 		const summary = reviewSummary([long, short, blank, unreviewed]);
-		expect(summary.count).toBe(2);
+		expect(summary.entries).toHaveLength(2);
 		expect(summary.totalWords).toBe(6);
 		expect(summary.avgWords).toBe(3);
 		expect(summary.reviewedAvgRating).toBe(4.5);
@@ -190,9 +150,8 @@ describe('reviewSummary and filterReviews', () => {
 
 	it('returns null averages when there are no reviews or no unreviewed rated films', () => {
 		const empty = reviewSummary([film({ rating: 4 })]);
-		expect(empty).toMatchObject({
+		expect(empty).toEqual({
 			entries: [],
-			count: 0,
 			totalWords: 0,
 			avgWords: null,
 			reviewedAvgRating: null,
@@ -229,39 +188,48 @@ describe('reviewSummary and filterReviews', () => {
 		expect(entries).toEqual(snapshot);
 	});
 
-	it('sorts by recent (undated last), longest, and rating (unrated last)', () => {
+	it('sorts by recent, longest, and rating with date and title tie-breakers', () => {
 		const undatedLong = film({
 			name: 'Undated Epic',
 			rating: null,
 			review: 'one two three four five six'
 		});
-		const olderHigh = film({
+		const olderFive = film({
 			name: 'Old Favorite',
 			rating: 5,
 			review: 'short note',
 			...watched(['2023-05-01'])
 		});
-		const newestMid = film({
-			name: 'Fresh Watch',
+		const newerFive = film({
+			name: 'New Favorite',
+			rating: 5,
+			review: 'two words',
+			...watched(['2025-11-20'])
+		});
+		const sameDayAlpha = film({
+			name: 'Alpha Watch',
 			rating: 3.5,
 			review: 'a medium length review here',
 			...watched(['2025-11-20'])
 		});
-		const { entries } = reviewSummary([undatedLong, olderHigh, newestMid]);
+		const { entries } = reviewSummary([undatedLong, olderFive, newerFive, sameDayAlpha]);
 
 		expect(filterReviews(entries, '', 'recent').map((e) => e.film.name)).toEqual([
-			'Fresh Watch',
+			'Alpha Watch',
+			'New Favorite',
 			'Old Favorite',
 			'Undated Epic'
 		]);
 		expect(filterReviews(entries, '', 'longest').map((e) => e.film.name)).toEqual([
 			'Undated Epic',
-			'Fresh Watch',
+			'Alpha Watch',
+			'New Favorite',
 			'Old Favorite'
 		]);
 		expect(filterReviews(entries, '', 'rating').map((e) => e.film.name)).toEqual([
+			'New Favorite',
 			'Old Favorite',
-			'Fresh Watch',
+			'Alpha Watch',
 			'Undated Epic'
 		]);
 	});

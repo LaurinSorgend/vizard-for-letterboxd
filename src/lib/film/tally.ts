@@ -31,6 +31,13 @@ export function totalRuntimeMinutes(films: EnrichedFilm[]): number {
 	return films.reduce((sum, f) => sum + libraryMinutes(f), 0);
 }
 
+export const likedCount = (films: EnrichedFilm[]): number =>
+	films.filter((film) => film.liked).length;
+
+export function cleanTags(tags: string[]): string[] {
+	return tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
+}
+
 /** Share (0–1) of films with a vote count that are deep cuts, or null if none have one. */
 export function obscurityShare(films: EnrichedFilm[]): number | null {
 	const counts = films.map(votes).filter((count) => count > 0);
@@ -66,6 +73,10 @@ export function byLanguage(films: EnrichedFilm[]): BarDatum[] {
 	return grouped(films, (f) =>
 		f.tmdb?.originalLanguage ? [languageName(f.tmdb.originalLanguage)] : []
 	);
+}
+
+export function byTag(films: EnrichedFilm[]): BarDatum[] {
+	return grouped(films, (f) => cleanTags(f.tags));
 }
 
 /**

@@ -39,9 +39,11 @@ describe('app.css', () => {
 	it('keeps --bar distinct from --accent and --liked for every accent', () => {
 		const token = (block: string, prop: string) =>
 			block.match(new RegExp(`${prop}:\\s*var\\((--ctp-[a-z0-9]+)\\)`))?.[1];
-		const defaultBar = token(css, '--bar');
-		const liked = token(css, '--liked');
+		const rootBlock = [...css.matchAll(/:root\s*\{([^}]*)\}/g)].map((m) => m[1]).join('\n');
+		const defaultBar = token(rootBlock, '--bar');
+		const liked = token(rootBlock, '--liked');
 		expect(defaultBar).toBeDefined();
+		expect(liked).toBeDefined();
 		expect(defaultBar).not.toBe(liked);
 
 		for (const { value } of ACCENTS) {
@@ -49,6 +51,7 @@ describe('app.css', () => {
 				css.match(new RegExp(`:root\\[data-accent='${value}'\\]\\s*\\{([^}]*)\\}`))?.[1] ?? '';
 			const accent = token(block, '--accent');
 			const bar = token(block, '--bar') ?? defaultBar;
+			expect(accent).toBeDefined();
 			expect(bar).not.toBe(accent);
 			expect(bar).not.toBe(liked);
 		}

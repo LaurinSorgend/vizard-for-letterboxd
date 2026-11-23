@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import KeywordCloud from '$lib/viz/KeywordCloud.svelte';
 	import { byKeyword } from '$lib/viz/keywords';
 	import MetricToggle from '$lib/viz/MetricToggle.svelte';
 	import RankedBars from '$lib/viz/RankedBars.svelte';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let keywordView = $state<'cloud' | 'bars'>('cloud');
-	const themes = $derived(byKeyword(library.filteredFilms));
+	const themes = $derived(byKeyword(dashboard.films));
 </script>
 
 {#if themes.length > 0}

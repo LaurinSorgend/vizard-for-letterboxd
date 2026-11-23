@@ -1,6 +1,8 @@
+import { isValidIsoDay } from '$lib/dates';
 import { latestWatch } from '$lib/film/diary';
-import { avgRating, grouped, type BarDatum } from '$lib/film/tally';
+import { avgRating } from '$lib/film/tally';
 import { DAY_MS } from '$lib/math';
+import { wordCount } from '$lib/text';
 import type { EnrichedFilm } from '$lib/types';
 import { plainReviewText } from './reviewMarkup';
 
@@ -14,7 +16,8 @@ export interface RewatchShift {
 	spanDays: number;
 }
 
-export interface RewatchShiftSummary {
+export interface RewatchAnalysis {
+	shifts: RewatchShift[];
 	improved: number;
 	dropped: number;
 	unchanged: number;
@@ -30,7 +33,6 @@ export interface ReviewEntry {
 
 export interface ReviewSummary {
 	entries: ReviewEntry[];
-	count: number;
 	totalWords: number;
 	avgWords: number | null;
 	reviewedAvgRating: number | null;
@@ -45,44 +47,35 @@ interface RatedEntry {
 	time: number;
 }
 
-function normalizeTags(tags: string[]): string[] {
-	return tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
-}
-
-/** Films grouped by trimmed, non-empty diary tag, count-desc then label. */
-export function byTag(films: EnrichedFilm[]): BarDatum[] {
-	return grouped(films, (film) => normalizeTags(film.tags));
-}
-
-/** Number of films carrying at least one non-empty diary tag. */
-export function taggedFilmCount(films: EnrichedFilm[]): number {
-	return films.filter((film) => normalizeTags(film.tags).length > 0).length;
-}
-
 function datedRatedEntries(film: EnrichedFilm): RatedEntry[] {
 	return film.entries
 		.flatMap((entry) => {
 			const date = entry.date.trim();
-			if (!date || entry.rating === null) return [];
-			const time = Date.parse(date);
-			return Number.isFinite(time) ? [{ date, rating: entry.rating, time }] : [];
+			if (entry.rating === null || !isValidIsoDay(date)) return [];
+			return [{ date, rating: entry.rating, time: Date.parse(`${date}T00:00:00Z`) }];
 		})
 		.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/**
- * Films whose rating changed between their earliest and latest dated rated diary entries,
- * ordered by magnitude of change desc, latest watch date desc, then film name.
- */
-export function rewatchShifts(films: EnrichedFilm[]): RewatchShift[] {
+/** Compares earliest and latest rated diary entries for each multi-rated film in one pass. */
+export function rewatchAnalysis(films: EnrichedFilm[]): RewatchAnalysis {
 	const shifts: RewatchShift[] = [];
+	let improved = 0;
+	let dropped = 0;
+	let unchanged = 0;
+
 	for (const film of films) {
 		const rated = datedRatedEntries(film);
 		if (rated.length < 2) continue;
 		const first = rated[0];
 		const latest = rated[rated.length - 1];
 		const delta = latest.rating - first.rating;
-		if (delta === 0) continue;
+		if (delta === 0) {
+			unchanged += 1;
+			continue;
+		}
+		if (delta > 0) improved += 1;
+		else dropped += 1;
 		shifts.push({
 			film,
 			firstDate: first.date,
@@ -93,36 +86,16 @@ export function rewatchShifts(films: EnrichedFilm[]): RewatchShift[] {
 			spanDays: Math.max(0, Math.round((latest.time - first.time) / DAY_MS))
 		});
 	}
-	return shifts.sort(
+
+	shifts.sort(
 		(a, b) =>
 			Math.abs(b.delta) - Math.abs(a.delta) ||
 			b.latestDate.localeCompare(a.latestDate) ||
 			a.film.name.localeCompare(b.film.name)
 	);
+	return { shifts, improved, dropped, unchanged };
 }
 
-/** Counts how many multi-rated rewatches rose, fell, or kept the same rating. */
-export function rewatchShiftSummary(films: EnrichedFilm[]): RewatchShiftSummary {
-	let improved = 0;
-	let dropped = 0;
-	let unchanged = 0;
-	for (const film of films) {
-		const rated = datedRatedEntries(film);
-		if (rated.length < 2) continue;
-		const delta = rated[rated.length - 1].rating - rated[0].rating;
-		if (delta > 0) improved += 1;
-		else if (delta < 0) dropped += 1;
-		else unchanged += 1;
-	}
-	return { improved, dropped, unchanged };
-}
-
-/** Word count matching `year/facts/library-facts.ts`. */
-export function wordCount(text: string): number {
-	return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-/** Extracts non-empty written reviews with word counts and reviewed vs. unreviewed averages. */
 export function reviewSummary(films: EnrichedFilm[]): ReviewSummary {
 	const entries: ReviewEntry[] = [];
 	const reviewed: EnrichedFilm[] = [];
@@ -148,7 +121,6 @@ export function reviewSummary(films: EnrichedFilm[]): ReviewSummary {
 	const totalWords = entries.reduce((sum, entry) => sum + entry.words, 0);
 	return {
 		entries,
-		count: entries.length,
 		totalWords,
 		avgWords: entries.length > 0 ? totalWords / entries.length : null,
 		reviewedAvgRating: avgRating(reviewed),
@@ -163,7 +135,16 @@ function compareDatesDesc(a: string | null, b: string | null): number {
 	return b.localeCompare(a);
 }
 
-/** Filters reviews by title or review text substring and sorts by the chosen order. */
+const REVIEW_COMPARATORS: Record<ReviewSort, (a: ReviewEntry, b: ReviewEntry) => number> = {
+	recent: (a, b) => compareDatesDesc(a.date, b.date) || a.film.name.localeCompare(b.film.name),
+	longest: (a, b) =>
+		b.words - a.words || compareDatesDesc(a.date, b.date) || a.film.name.localeCompare(b.film.name),
+	rating: (a, b) =>
+		(b.film.rating ?? -1) - (a.film.rating ?? -1) ||
+		compareDatesDesc(a.date, b.date) ||
+		a.film.name.localeCompare(b.film.name)
+};
+
 export function filterReviews(
 	entries: ReviewEntry[],
 	query: string,
@@ -178,22 +159,5 @@ export function filterReviews(
 						entry.film.name.toLowerCase().includes(needle) ||
 						entry.plain.toLowerCase().includes(needle)
 				);
-
-	return matched.sort((a, b) => {
-		if (sort === 'longest') {
-			return (
-				b.words - a.words ||
-				compareDatesDesc(a.date, b.date) ||
-				a.film.name.localeCompare(b.film.name)
-			);
-		}
-		if (sort === 'rating') {
-			return (
-				(b.film.rating ?? -1) - (a.film.rating ?? -1) ||
-				compareDatesDesc(a.date, b.date) ||
-				a.film.name.localeCompare(b.film.name)
-			);
-		}
-		return compareDatesDesc(a.date, b.date) || a.film.name.localeCompare(b.film.name);
-	});
+	return matched.sort(REVIEW_COMPARATORS[sort]);
 }

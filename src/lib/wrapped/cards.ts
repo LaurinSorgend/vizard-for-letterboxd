@@ -1,9 +1,10 @@
 import { count } from '$lib/format';
 import { averageRating, countries, hours, topRated } from '$lib/year/facts/totals';
 import { streak } from '$lib/year/facts/timing';
-import { imageUrl } from '$lib/film/links';
+import { imageUrl, SITE_HOST } from '$lib/film/links';
 import { alsoTrueLine } from '$lib/year/verdict';
 import {
+	deliver,
 	ensureFonts,
 	fitFont,
 	font,
@@ -11,13 +12,14 @@ import {
 	loadImage,
 	posterBox,
 	rgba,
+	truncateText,
 	wrap,
 	type Block,
 	type Palette
 } from './canvas';
 import { CARD_POSTERS, drawGate, isDense } from './look';
 import { LABELS, TOP_FILMS } from './labels';
-import type { DeckInput, Scene, Stat } from './scenes/shared';
+import type { Bar, DeckInput, Scene, Stat } from './scenes/shared';
 
 /* A mounted transparency: dark mount all round, a deeper strip at the foot for the
  * stamp, and the lit field between them. `margin` is mount plus the field's own inset,
@@ -25,12 +27,23 @@ import type { DeckInput, Scene, Stat } from './scenes/shared';
 const STORY = { width: 1080, height: 1920, mount: 56, strip: 148, margin: 128 };
 const POSTER = { width: 1080, height: 1350, mount: 56, strip: 136, margin: 124 };
 
-/** Printed on the mount of the card people actually hand around. */
-const SITE = 'vizard.sorgend.org';
-
-/** Filename for a saved summary poster or single-scene story card. */
 export function cardFilename(year: number, sceneId?: string): string {
 	return `${year}-in-cinema${sceneId ? `-${sceneId}` : ''}.png`;
+}
+
+export async function exportCard(
+	render: () => Promise<HTMLCanvasElement>,
+	filename: string
+): Promise<{ status: string | null; error: boolean }> {
+	try {
+		const outcome = await deliver(await render(), filename);
+		return { status: outcome === 'saved' ? `Saved as ${filename}.` : null, error: false };
+	} catch (cause) {
+		return {
+			status: cause instanceof Error ? cause.message : 'The picture could not be rendered.',
+			error: true
+		};
+	}
 }
 
 function surface(width: number, height: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -195,75 +208,50 @@ const BAR_MIN_LABEL_WIDTH = 160;
 const BAR_MAX_LABEL_WIDTH = 300;
 const BAR_MIN_VALUE_WIDTH = 64;
 const BAR_MAX_VALUE_WIDTH = 140;
+const BAR_PREFERRED_TRACK = 200;
+const BAR_MIN_TRACK = 80;
 const DENSE_LABEL_SIZES = [24, 22, 20, 18, 16, 14] as const;
-
-/** Trims `text` with an ellipsis until `measure` fits inside `maxWidth` pixels. */
-export function truncateText(
-	text: string,
-	maxWidth: number,
-	measure: (value: string) => number
-): string {
-	if (maxWidth <= 0) return '';
-	if (measure(text) <= maxWidth) return text;
-	let trimmed = text.trimEnd();
-	while (trimmed.length > 1 && measure(`${trimmed}…`) > maxWidth) {
-		trimmed = trimmed.slice(0, -1).trimEnd();
-	}
-	return `${trimmed}…`;
-}
-
-export interface HorizontalBarRow {
-	label: string;
-	value: string;
-	share: number;
-}
 
 export interface HorizontalBarLayout {
 	labelWidth: number;
-	trackX: number;
+	trackOffset: number;
 	trackWidth: number;
 	valueWidth: number;
-	rowHeight: number;
-	trackHeight: number;
-	rows: HorizontalBarRow[];
+	rows: Bar[];
 }
 
-/**
- * Computes non-overlapping column geometry for horizontal bar rows, clamping long labels and
- * values with an ellipsis so neither ever prints over the bar track.
- */
 export function horizontalBarLayout(
-	bars: { label: string; value: string; share: number }[],
+	bars: Bar[],
 	measureTotal: number,
 	measureLabel: (text: string) => number,
 	measureValue: (text: string) => number
 ): HorizontalBarLayout {
+	const gaps = BAR_LABEL_GAP + BAR_VALUE_GAP;
 	const widestValue = bars.reduce((max, bar) => Math.max(max, measureValue(bar.value)), 0);
-	const valueWidth = Math.min(
+	const rawValueWidth = Math.min(
 		BAR_MAX_VALUE_WIDTH,
 		Math.max(BAR_MIN_VALUE_WIDTH, Math.ceil(widestValue))
 	);
+	const valueWidth = Math.min(rawValueWidth, Math.max(0, measureTotal - gaps - BAR_MIN_TRACK));
+
 	const widestLabel = bars.reduce((max, bar) => Math.max(max, measureLabel(bar.label)), 0);
-	const maxAllowedLabel = Math.min(
+	const labelBudget = Math.max(0, measureTotal - valueWidth - gaps - BAR_MIN_TRACK);
+	const preferredMaxLabel = Math.min(
 		BAR_MAX_LABEL_WIDTH,
-		Math.max(BAR_MIN_LABEL_WIDTH, measureTotal - valueWidth - BAR_LABEL_GAP - BAR_VALUE_GAP - 200)
+		Math.max(BAR_MIN_LABEL_WIDTH, measureTotal - valueWidth - gaps - BAR_PREFERRED_TRACK)
 	);
 	const labelWidth = Math.min(
-		maxAllowedLabel,
-		Math.max(BAR_MIN_LABEL_WIDTH, Math.ceil(widestLabel))
+		labelBudget,
+		Math.min(preferredMaxLabel, Math.max(BAR_MIN_LABEL_WIDTH, Math.ceil(widestLabel)))
 	);
-	const trackX = STORY.margin + labelWidth + BAR_LABEL_GAP;
-	const trackWidth = Math.max(
-		80,
-		measureTotal - labelWidth - BAR_LABEL_GAP - BAR_VALUE_GAP - valueWidth
-	);
+
+	const trackOffset = labelWidth + BAR_LABEL_GAP;
+	const trackWidth = Math.max(0, measureTotal - trackOffset - BAR_VALUE_GAP - valueWidth);
 	return {
 		labelWidth,
-		trackX,
+		trackOffset,
 		trackWidth,
 		valueWidth,
-		rowHeight: BAR_ROW_HEIGHT,
-		trackHeight: BAR_TRACK_HEIGHT,
 		rows: bars.map((bar) => ({
 			label: truncateText(bar.label, labelWidth, measureLabel),
 			value: truncateText(bar.value, valueWidth, measureValue),
@@ -272,33 +260,44 @@ export function horizontalBarLayout(
 	};
 }
 
-/** Picks a readable font size and label stride so dense vertical-bar axis labels never collide. */
 export function denseBarLabelSpec(
 	labels: string[],
 	slotWidth: number,
 	measureAt: (text: string, size: number) => number
-): { fontSize: number; step: number } {
+): { fontSize: number; step: number; indices: number[] } {
 	const available = Math.max(12, slotWidth - 4);
+	let fontSize: number = DENSE_LABEL_SIZES[DENSE_LABEL_SIZES.length - 1];
+	let step = 1;
 	for (const size of DENSE_LABEL_SIZES) {
 		const widest = labels.reduce((max, label) => Math.max(max, measureAt(label, size)), 0);
-		if (widest <= available) return { fontSize: size, step: 1 };
+		if (widest <= available) {
+			fontSize = size;
+			step = 1;
+			break;
+		}
+		if (size === fontSize) {
+			step = Math.max(1, Math.ceil((widest + 6) / Math.max(1, slotWidth)));
+		}
 	}
-	const smallest = DENSE_LABEL_SIZES[DENSE_LABEL_SIZES.length - 1];
-	const widest = labels.reduce((max, label) => Math.max(max, measureAt(label, smallest)), 0);
-	const step = Math.max(1, Math.ceil((widest + 6) / Math.max(1, slotWidth)));
-	return { fontSize: smallest, step };
+	const indices: number[] = [];
+	for (let i = 0; i < labels.length; i += step) indices.push(i);
+	const last = labels.length - 1;
+	if (last >= 0 && (indices.length === 0 || last - indices[indices.length - 1] >= step)) {
+		indices.push(last);
+	}
+	return { fontSize, step, indices };
 }
 
 function denseBarBlock(
 	ctx: CanvasRenderingContext2D,
-	bars: { label: string; value: string; share: number }[],
+	bars: Bar[],
 	measure: number,
 	palette: Palette
 ): Block {
 	const gap = 8;
 	const width = (measure - gap * (bars.length - 1)) / bars.length;
 	const tall = 190;
-	const { fontSize, step } = denseBarLabelSpec(
+	const { fontSize, indices } = denseBarLabelSpec(
 		bars.map((bar) => bar.label),
 		width + gap,
 		(text, size) => {
@@ -306,6 +305,7 @@ function denseBarBlock(
 			return ctx.measureText(text).width;
 		}
 	);
+	const labeled = new Set(indices);
 	return {
 		height: tall + 24 + fontSize,
 		draw: (y) => {
@@ -313,12 +313,14 @@ function denseBarBlock(
 			ctx.textBaseline = 'top';
 			bars.forEach((bar, i) => {
 				const x = STORY.margin + i * (width + gap);
-				const filled = Math.max(4, bar.share * tall);
-				ctx.fillStyle = palette.accent;
-				ctx.fillRect(x, y + tall - filled, width, filled);
+				const filled = bar.share > 0 ? Math.max(4, bar.share * tall) : 0;
+				if (filled > 0) {
+					ctx.fillStyle = palette.accent;
+					ctx.fillRect(x, y + tall - filled, width, filled);
+				}
 				ctx.fillStyle = palette.line;
 				ctx.fillRect(x, y + tall, width, 2);
-				if (i % step !== 0 && i !== bars.length - 1) return;
+				if (!labeled.has(i)) return;
 				ctx.font = font(palette.faces, 'mono', fontSize);
 				ctx.fillStyle = palette.muted;
 				ctx.textAlign = 'center';
@@ -329,11 +331,7 @@ function denseBarBlock(
 	};
 }
 
-function barBlock(
-	ctx: CanvasRenderingContext2D,
-	bars: { label: string; value: string; share: number }[],
-	palette: Palette
-): Block {
+function barBlock(ctx: CanvasRenderingContext2D, bars: Bar[], palette: Palette): Block {
 	const measure = STORY.width - STORY.margin * 2;
 	if (isDense(bars)) return denseBarBlock(ctx, bars, measure, palette);
 
@@ -346,15 +344,16 @@ function barBlock(
 		return ctx.measureText(text).width;
 	};
 	const layout = horizontalBarLayout(bars, measure, measureBody, measureMono);
+	const trackX = STORY.margin + layout.trackOffset;
 
 	return {
-		height: layout.rows.length * layout.rowHeight,
+		height: layout.rows.length * BAR_ROW_HEIGHT,
 		draw: (y) => {
 			ctx.save();
 			ctx.textBaseline = 'middle';
 			layout.rows.forEach((bar, i) => {
-				const midY = y + i * layout.rowHeight + layout.rowHeight / 2;
-				const trackTop = midY - layout.trackHeight / 2;
+				const midY = y + i * BAR_ROW_HEIGHT + BAR_ROW_HEIGHT / 2;
+				const trackTop = midY - BAR_TRACK_HEIGHT / 2;
 
 				ctx.font = font(palette.faces, 'body', BAR_LABEL_SIZE);
 				ctx.fillStyle = palette.ink;
@@ -362,10 +361,12 @@ function barBlock(
 				ctx.fillText(bar.label, STORY.margin, midY);
 
 				ctx.fillStyle = rgba(palette.ink, 0.12);
-				ctx.fillRect(layout.trackX, trackTop, layout.trackWidth, layout.trackHeight);
-				const filled = Math.max(4, layout.trackWidth * bar.share);
-				ctx.fillStyle = palette.accent;
-				ctx.fillRect(layout.trackX, trackTop, filled, layout.trackHeight);
+				ctx.fillRect(trackX, trackTop, layout.trackWidth, BAR_TRACK_HEIGHT);
+				const filled = bar.share > 0 ? Math.max(4, layout.trackWidth * bar.share) : 0;
+				if (filled > 0) {
+					ctx.fillStyle = palette.accent;
+					ctx.fillRect(trackX, trackTop, filled, BAR_TRACK_HEIGHT);
+				}
 
 				ctx.font = font(palette.faces, 'mono', BAR_VALUE_SIZE);
 				ctx.fillStyle = palette.muted;
@@ -379,6 +380,9 @@ function barBlock(
 
 const STAT_LABEL = 24;
 const STAT_VALUE = 40;
+const STAT_MAX_VALUE_WIDTH = 288;
+const STAT_MIN_COL_WIDTH = 200;
+const STAT_COL_GAP = 48;
 
 export interface StatColumn {
 	x: number;
@@ -396,9 +400,13 @@ export function statColumns(
 ): StatColumn[] {
 	let x = STORY.margin;
 	return stats.slice(0, 3).map((stat) => {
-		const value = stat.value.length > 18 ? `${stat.value.slice(0, 17)}…` : stat.value;
+		const value = truncateText(stat.value, STAT_MAX_VALUE_WIDTH, (text) =>
+			measure(text, STAT_VALUE)
+		);
 		const column = { x, label: stat.label, value };
-		x += Math.max(measure(value, STAT_VALUE), measure(stat.label, STAT_LABEL), 200) + 48;
+		x +=
+			Math.max(measure(value, STAT_VALUE), measure(stat.label, STAT_LABEL), STAT_MIN_COL_WIDTH) +
+			STAT_COL_GAP;
 		return column;
 	});
 }
@@ -596,6 +604,6 @@ export async function summaryCard(input: DeckInput, palette: Palette): Promise<H
 	drawSummaryGrid(ctx, stats, y, row, palette);
 	verdict.draw(verdictTop);
 
-	finish(ctx, POSTER, palette, String(library.year), SITE);
+	finish(ctx, POSTER, palette, String(library.year), SITE_HOST);
 	return canvas;
 }

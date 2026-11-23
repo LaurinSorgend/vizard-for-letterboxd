@@ -2,15 +2,15 @@
 	import { providersFetcher } from '$lib/api/endpoints';
 	import { CachedLookup, followLookup } from '$lib/api/lookup.svelte';
 	import { getOrCreate } from '$lib/maps';
-	import { offersKey, type ProviderRequestItem, type RegionOffers } from '$lib/types';
+	import { tmdbRefKey, type RegionOffers, type TmdbRef } from '$lib/types';
 
-	type OfferLookup = CachedLookup<ProviderRequestItem, string, RegionOffers | null>;
+	type OfferLookup = CachedLookup<TmdbRef, string, RegionOffers | null>;
 
 	/** Offers per country, since catalogues differ by country. */
 	const lookups = new Map<string, OfferLookup>();
 
 	const lookupFor = (region: string): OfferLookup =>
-		getOrCreate(lookups, region, () => new CachedLookup(offersKey, providersFetcher(region)));
+		getOrCreate(lookups, region, () => new CachedLookup(tmdbRefKey, providersFetcher(region)));
 </script>
 
 <script lang="ts">
@@ -27,13 +27,13 @@
 		type WatchFilters,
 		type WatchSort
 	} from './filter';
+	import { PosterPalette } from '$lib/posters/palette.svelte';
 	import {
 		buildTasteProfile,
 		hasTasteSignals,
 		scoreFilm,
 		type TasteMatch
-	} from '$lib/releases/similarity';
-	import { PosterPalette } from '$lib/posters/palette.svelte';
+	} from '$lib/recommend/similarity';
 	import { region as watchRegion } from '$lib/region/region.svelte';
 	import { loadServices, saveServices } from './services';
 	import { watchlistSummary } from './summary';
@@ -45,7 +45,7 @@
 	import RandomPick from './RandomPick.svelte';
 	import type { EnrichedFilm, WatchlistFilm } from '$lib/types';
 
-	let { watchlist, films = [] }: { watchlist: WatchlistFilm[]; films?: EnrichedFilm[] } = $props();
+	let { watchlist, films }: { watchlist: WatchlistFilm[]; films: EnrichedFilm[] } = $props();
 
 	const region = $derived(watchRegion.code);
 	const lookup = $derived(lookupFor(region));
@@ -60,14 +60,16 @@
 			f.tmdb ? [{ tmdbId: f.tmdb.tmdbId, mediaType: f.tmdb.mediaType }] : []
 		)
 	);
-	const offersOf: OffersOf = (film) => (film.tmdb ? lookup.values.get(offersKey(film.tmdb)) : null);
+	const offersOf: OffersOf = (film) =>
+		film.tmdb ? lookup.values.get(tmdbRefKey(film.tmdb)) : null;
 
 	const loading = $derived(lookup.loading);
 	const unresolved = $derived(lookup.unresolved(titles));
 	const counts = $derived(serviceCounts(watchlist, offersOf));
-	const summary = $derived(watchlistSummary(watchlist, offersOf, filters.services, loading));
+	const summary = $derived(watchlistSummary(watchlist, offersOf, filters.services, { counts }));
 	const tasteProfile = $derived(buildTasteProfile(films));
 	const hasTaste = $derived(hasTasteSignals(tasteProfile));
+	const effectiveSort = $derived<WatchSort>(sort === 'taste' && !hasTaste ? 'added-desc' : sort);
 	const tasteByUri = $derived.by(() => {
 		const matches = new Map<string, TasteMatch>();
 		if (!hasTaste) return matches;
@@ -80,9 +82,10 @@
 
 	const filtered = $derived(filterWatchlist(watchlist, filters, offersOf));
 	const swatchOf: SwatchOf = (film) => palette.swatchOf(posterOf(film));
-	const shown = $derived(sortWatchlist(filtered, sort, seed, swatchOf, tasteOf));
+	const shown = $derived(sortWatchlist(filtered, effectiveSort, { seed, swatchOf, tasteOf }));
+	const showingTaste = $derived(effectiveSort === 'taste' && hasTaste);
 	const tasteMatched = $derived(
-		sort === 'taste' ? shown.filter((f) => (tasteOf(f)?.score ?? 0) > 0).length : 0
+		showingTaste ? shown.filter((f) => (tasteOf(f)?.score ?? 0) > 0).length : 0
 	);
 
 	followLookup(
@@ -106,7 +109,7 @@
 
 <div class="form-controls">
 	{#if watchlist.length > 0}
-		<WatchlistSummary {summary} {region} />
+		<WatchlistSummary {summary} {region} {loading} />
 	{/if}
 	<WatchlistControls
 		bind:filters
@@ -126,7 +129,7 @@
 			Checking where your watchlist streams… {lookup.progress.done} / {lookup.progress.total}
 		{:else}
 			<span data-numeric>{shown.length}</span> of <span data-numeric>{watchlist.length}</span> films
-			{#if sort === 'taste' && hasTaste}
+			{#if showingTaste}
 				· <span data-numeric>{tasteMatched}</span>
 				{tasteMatched === 1 ? 'film matches' : 'films match'} your favourites
 			{/if}
@@ -144,7 +147,7 @@
 		{offersOf}
 		services={filters.services}
 		{showLogos}
-		tasteOf={sort === 'taste' ? tasteOf : undefined}
+		tasteOf={showingTaste ? tasteOf : undefined}
 	/>
 
 	<p class="credit">

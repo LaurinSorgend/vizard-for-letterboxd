@@ -1,0 +1,78 @@
+.compare .compare-block {
+	margin: 0 0 32px;
+	padding-top: 24px;
+	border-top: 1px solid var(--border);
+}
+.compare .compare-block:first-of-type {
+	padding-top: 0;
+	border-top: none;
+}
+.compare .block-head {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 8px 16px;
+	margin-bottom: 12px;
+}
+.compare .compare-block h3 {
+	margin: 0;
+	color: var(--fg);
+}
+.compare .legend {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+	margin-bottom: 12px;
+	font-size: var(--text-sm);
+	color: var(--fg-secondary);
+}
+.compare .legend-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+.compare .swatch {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	flex-shrink: 0;
+}
+.compare .you {
+	background: var(--accent);
+}
+.compare .friend {
+	background: var(--bar);
+}
+.compare .table-wrap {
+	overflow-x: auto;
+}
+.compare .compare-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-family: var(--font-sans);
+}
+.compare .compare-table th,
+.compare .compare-table td {
+	padding: 8px 8px 8px 0;
+	border-bottom: 1px solid var(--border);
+	text-align: left;
+	font-size: var(--text-sm);
+	vertical-align: top;
+}
+.compare .compare-table th {
+	color: var(--fg-secondary);
+	font-weight: 500;
+	border-bottom: 1px solid var(--border-strong);
+}
+.compare .compare-table .num {
+	text-align: right;
+	white-space: nowrap;
+	padding-right: 0;
+	padding-left: 12px;
+}
+.compare .empty {
+	margin: 0;
+	color: var(--fg-secondary);
+}

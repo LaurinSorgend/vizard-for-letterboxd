@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import Columns from '$lib/viz/Columns.svelte';
 	import RatingGaps from '$lib/viz/RatingGaps.svelte';
 	import { likedCount, ratingHistogram } from '$lib/viz/stats';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
-	const films = $derived(library.filteredFilms);
+	const films = $derived(dashboard.films);
 	const liked = $derived(likedCount(films));
 </script>
 

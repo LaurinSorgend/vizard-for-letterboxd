@@ -18,11 +18,15 @@ function sampleSnapshot(): Snapshot {
 	};
 }
 
-/** Minimal in-memory IndexedDB stub supporting the snapshot store operations. */
-function installFakeIdb(initial: Record<string, unknown> = {}, failPut = false) {
-	const stores = new Map<string, Map<string, unknown>>([
-		['snapshots', new Map(Object.entries(initial))]
-	]);
+/** Minimal in-memory IndexedDB stub that requires `onupgradeneeded` to create stores. */
+function installFakeIdb(
+	options: { initial?: Record<string, unknown>; failPut?: boolean; failOpen?: boolean } = {}
+) {
+	const stores = new Map<string, Map<string, unknown>>();
+	const hasInitial = options.initial && Object.keys(options.initial).length > 0;
+	if (hasInitial) {
+		stores.set('snapshots', new Map(Object.entries(options.initial!)));
+	}
 
 	function makeRequest<T>(run: () => T): IDBRequest<T> {
 		const req = {
@@ -52,7 +56,8 @@ function installFakeIdb(initial: Record<string, unknown> = {}, failPut = false) 
 		},
 		close: vi.fn(),
 		transaction: (name: string) => {
-			const map = stores.get(name)!;
+			const map = stores.get(name);
+			if (!map) throw new DOMException(`Missing store ${name}`, 'NotFoundError');
 			let failed: DOMException | null = null;
 			const tx = {
 				error: null as DOMException | null,
@@ -64,7 +69,7 @@ function installFakeIdb(initial: Record<string, unknown> = {}, failPut = false) 
 					getAllKeys: () => makeRequest(() => [...map.keys()]),
 					put: (value: unknown, key: string) =>
 						makeRequest(() => {
-							if (failPut) {
+							if (options.failPut) {
 								failed = new DOMException('Quota exceeded', 'QuotaExceededError');
 								throw failed;
 							}
@@ -94,13 +99,18 @@ function installFakeIdb(initial: Record<string, unknown> = {}, failPut = false) 
 		open: () => {
 			const req = {
 				result: db,
-				error: null,
+				error: null as DOMException | null,
 				onupgradeneeded: null as (() => void) | null,
 				onsuccess: null as (() => void) | null,
 				onerror: null as (() => void) | null
 			};
 			queueMicrotask(() => {
-				req.onupgradeneeded?.();
+				if (options.failOpen) {
+					req.error = new DOMException('IDB unavailable', 'SecurityError');
+					req.onerror?.();
+					return;
+				}
+				if (!hasInitial) req.onupgradeneeded?.();
 				req.onsuccess?.();
 			});
 			return req;
@@ -108,7 +118,9 @@ function installFakeIdb(initial: Record<string, unknown> = {}, failPut = false) 
 	} as unknown as IDBFactory;
 
 	vi.stubGlobal('indexedDB', factory);
-	return stores.get('snapshots')!;
+	return {
+		keys: () => [...(stores.get('snapshots')?.keys() ?? [])]
+	};
 }
 
 function installFakeLocalStorage(initial: Record<string, string> = {}) {
@@ -136,50 +148,58 @@ afterEach(() => {
 });
 
 describe('snapshot store (IndexedDB)', () => {
-	it('saves, loads, and clears snapshots in IndexedDB', async () => {
-		const idb = installFakeIdb();
+	it('creates the object store on upgrade and saves, loads, and clears snapshots', async () => {
+		installFakeIdb();
 		installFakeLocalStorage();
 		const snap = sampleSnapshot();
 
 		expect(await saveSnapshot(snap)).toBe(true);
-		expect(idb.has(KEY)).toBe(true);
 		expect(await loadSnapshot()).toEqual(snap);
 
 		await clearSnapshot();
-		expect(idb.has(KEY)).toBe(false);
 		expect(await loadSnapshot()).toBeNull();
 	});
 
-	it('sweeps old schema generations from IndexedDB on load', async () => {
+	it('sweeps old schema generations from both IndexedDB and legacy localStorage on load', async () => {
 		const idb = installFakeIdb({
-			'vizard:snapshot:v1': { stale: true },
-			[KEY]: sampleSnapshot()
+			initial: {
+				'vizard:snapshot:v1': { stale: true },
+				[KEY]: sampleSnapshot()
+			}
 		});
-		installFakeLocalStorage({ 'vizard:snapshot:v1': '{}' });
+		const ls = installFakeLocalStorage({
+			'vizard:snapshot:v1': '{}',
+			'vizard:unrelated': 'keep'
+		});
 
 		const loaded = await loadSnapshot();
 		expect(loaded).toEqual(sampleSnapshot());
-		expect(idb.has('vizard:snapshot:v1')).toBe(false);
-		expect(idb.has(KEY)).toBe(true);
+		expect(idb.keys()).toEqual([KEY]);
+		expect(ls.has('vizard:snapshot:v1')).toBe(false);
+		expect(ls.get('vizard:unrelated')).toBe('keep');
 	});
 
 	it('migrates a legacy localStorage snapshot into IndexedDB and clears localStorage', async () => {
-		const idb = installFakeIdb();
+		installFakeIdb();
 		const snap = sampleSnapshot();
 		const ls = installFakeLocalStorage({
 			[KEY]: JSON.stringify(snap),
 			'vizard:snapshot:v2': '{}'
 		});
 
-		const loaded = await loadSnapshot();
-		expect(loaded).toEqual(snap);
-		expect(idb.get(KEY)).toEqual(snap);
+		expect(await loadSnapshot()).toEqual(snap);
 		expect(ls.size).toBe(0);
+		expect(await loadSnapshot()).toEqual(snap);
 	});
 
-	it('returns false when IndexedDB refuses a write', async () => {
-		installFakeIdb({}, true);
+	it('falls back to legacy localStorage when IndexedDB refuses to open and returns false on write failure', async () => {
+		const snap = sampleSnapshot();
+		installFakeIdb({ failOpen: true });
+		installFakeLocalStorage({ [KEY]: JSON.stringify(snap) });
+		expect(await loadSnapshot()).toEqual(snap);
+
+		installFakeIdb({ failPut: true });
 		installFakeLocalStorage();
-		expect(await saveSnapshot(sampleSnapshot())).toBe(false);
+		expect(await saveSnapshot(snap)).toBe(false);
 	});
 });

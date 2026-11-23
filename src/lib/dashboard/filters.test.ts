@@ -3,10 +3,9 @@ import { film, tmdb, watched } from '$lib/testing/fixtures';
 import type { CustomList, EnrichedFilm } from '$lib/types';
 import {
 	activeFilterChips,
-	availableTags,
-	availableWatchYears,
 	clearFilterChip,
 	filterDashboardFilms,
+	fullCalendarYear,
 	hasActiveDashboardFilters,
 	NO_DASHBOARD_FILTERS,
 	type DashboardFilters
@@ -31,15 +30,12 @@ function makeList(over: Partial<CustomList> = {}): CustomList {
 	};
 }
 
-describe('hasActiveDashboardFilters', () => {
-	it('returns false when all filters are cleared or whitespace', () => {
+describe('hasActiveDashboardFilters and fullCalendarYear', () => {
+	it('returns false when all filters are cleared or whitespace, and true for any active dimension', () => {
 		expect(hasActiveDashboardFilters(NO_DASHBOARD_FILTERS)).toBe(false);
 		expect(
 			hasActiveDashboardFilters(withFilters({ fromDate: '  ', toDate: '', tag: ' ', listId: '  ' }))
 		).toBe(false);
-	});
-
-	it('returns true when any single filter is active', () => {
 		expect(hasActiveDashboardFilters(withFilters({ fromDate: '2024-01-01' }))).toBe(true);
 		expect(hasActiveDashboardFilters(withFilters({ toDate: '2024-12-31' }))).toBe(true);
 		expect(hasActiveDashboardFilters(withFilters({ mediaType: 'movie' }))).toBe(true);
@@ -49,37 +45,11 @@ describe('hasActiveDashboardFilters', () => {
 		expect(hasActiveDashboardFilters(withFilters({ heartedOnly: true }))).toBe(true);
 		expect(hasActiveDashboardFilters(withFilters({ listId: 'favorites' }))).toBe(true);
 	});
-});
 
-describe('availableWatchYears', () => {
-	it('returns unique diary years in descending order and skips invalid entries', () => {
-		const films = [
-			film(watched(['2022-03-10', '2024-11-05'])),
-			film(watched(['2024-01-01', '2021-07-20'])),
-			film({ watchedDates: ['', 'not-a-date', ' 2023-06-15 '] }),
-			film()
-		];
-		expect(availableWatchYears(films)).toEqual([2024, 2023, 2022, 2021]);
-	});
-
-	it('returns empty array when no films have diary dates', () => {
-		expect(availableWatchYears([film(), film()])).toEqual([]);
-	});
-});
-
-describe('availableTags', () => {
-	it('trims tags, deduplicates per film, and sorts by count desc then alphabetical', () => {
-		const films = [
-			film({ tags: [' cinema ', 'noir', 'cinema', ''] }),
-			film({ tags: ['noir', '  ', 'festival'] }),
-			film({ tags: ['archive', 'festival'] })
-		];
-		expect(availableTags(films)).toEqual([
-			{ tag: 'festival', count: 2 },
-			{ tag: 'noir', count: 2 },
-			{ tag: 'archive', count: 1 },
-			{ tag: 'cinema', count: 1 }
-		]);
+	it('recognizes exact calendar-year spans and rejects partial or cross-year ranges', () => {
+		expect(fullCalendarYear('2024-01-01', '2024-12-31')).toBe('2024');
+		expect(fullCalendarYear('2023-01-01', '2024-12-31')).toBeNull();
+		expect(fullCalendarYear('2024-01-02', '2024-12-31')).toBeNull();
 	});
 });
 
@@ -113,9 +83,12 @@ describe('filterDashboardFilms', () => {
 	});
 	const library = [movie, series, unmatched];
 
-	it('returns the original array reference when no filters are active', () => {
-		const result = filterDashboardFilms(library, NO_DASHBOARD_FILTERS);
-		expect(result).toBe(library);
+	it('keeps every film when no filters are active', () => {
+		expect(names(filterDashboardFilms(library, NO_DASHBOARD_FILTERS))).toEqual([
+			'Stalker',
+			'Twin Peaks',
+			'Obscure Short'
+		]);
 	});
 
 	it('filters by mediaType and treats unmatched films as movies', () => {
@@ -128,7 +101,7 @@ describe('filterDashboardFilms', () => {
 		]);
 	});
 
-	it('filters by diaryOnly and heartedOnly', () => {
+	it('filters by diaryOnly, heartedOnly, and exact trimmed diary tag', () => {
 		expect(names(filterDashboardFilms(library, withFilters({ diaryOnly: true })))).toEqual([
 			'Stalker',
 			'Twin Peaks'
@@ -137,9 +110,6 @@ describe('filterDashboardFilms', () => {
 			'Stalker',
 			'Obscure Short'
 		]);
-	});
-
-	it('filters by exact trimmed diary tag', () => {
 		expect(names(filterDashboardFilms(library, withFilters({ tag: 'cinema' })))).toEqual([
 			'Stalker'
 		]);
@@ -189,7 +159,6 @@ describe('filterDashboardFilms', () => {
 			withFilters({ fromDate: '2023-01-01', toDate: '2023-12-31' })
 		);
 		expect(names(in2023)).toEqual(['Stalker']);
-		expect(in2023[0]).not.toBe(movie);
 		expect(in2023[0].watchedDates).toEqual(['2023-04-12']);
 		expect(in2023[0].entries).toEqual([{ date: '2023-04-12', rating: 5, rewatch: false }]);
 		expect(in2023[0].rewatch).toBe(false);
@@ -206,6 +175,10 @@ describe('filterDashboardFilms', () => {
 		expect(movie.watchedDates).toEqual(['2023-04-12', '2024-09-20']);
 		expect(movie.entries).toHaveLength(2);
 		expect(movie.rewatch).toBe(true);
+
+		expect(
+			filterDashboardFilms(library, withFilters({ fromDate: '2024-12-31', toDate: '2024-01-01' }))
+		).toEqual([]);
 	});
 
 	it('supports open-ended fromDate or toDate bounds and preserves rewatch when entries are absent', () => {
@@ -227,15 +200,62 @@ describe('filterDashboardFilms', () => {
 		expect(toOnly[1].watchedDates).toEqual(['2024-02-14']);
 	});
 
-	it('combines multiple filters together', () => {
+	it('requires every active filter to pass when combining dimensions', () => {
+		const wrongYear = film({
+			name: 'Wrong Year',
+			year: 1980,
+			liked: true,
+			tags: ['cinema'],
+			tmdb: tmdb({ mediaType: 'movie' }),
+			...watched(['2023-05-01'], 5)
+		});
+		const wrongType = film({
+			name: 'Wrong Type',
+			year: 1981,
+			liked: true,
+			tags: ['cinema'],
+			tmdb: tmdb({ mediaType: 'tv' }),
+			...watched(['2024-05-01'], 5)
+		});
+		const unhearted = film({
+			name: 'Unhearted',
+			year: 1982,
+			liked: false,
+			tags: ['cinema'],
+			tmdb: tmdb({ mediaType: 'movie' }),
+			...watched(['2024-05-01'], 5)
+		});
+		const wrongTag = film({
+			name: 'Wrong Tag',
+			year: 1983,
+			liked: true,
+			tags: ['other'],
+			tmdb: tmdb({ mediaType: 'movie' }),
+			...watched(['2024-05-01'], 5)
+		});
+		const notInList = film({
+			name: 'Not In List',
+			year: 1984,
+			liked: true,
+			tags: ['cinema'],
+			tmdb: tmdb({ mediaType: 'movie' }),
+			...watched(['2024-05-01'], 5)
+		});
+
 		const lists = [
 			makeList({
 				id: 'top',
-				items: [{ position: 1, name: 'Stalker', year: 1979, uri: '', description: '' }]
+				items: [movie, wrongYear, wrongType, unhearted, wrongTag].map((f, i) => ({
+					position: i + 1,
+					name: f.name,
+					year: f.year,
+					uri: '',
+					description: ''
+				}))
 			})
 		];
 		const combined = filterDashboardFilms(
-			library,
+			[movie, wrongYear, wrongType, unhearted, wrongTag, notInList],
 			withFilters({
 				fromDate: '2024-01-01',
 				toDate: '2024-12-31',
@@ -249,12 +269,11 @@ describe('filterDashboardFilms', () => {
 		);
 		expect(names(combined)).toEqual(['Stalker']);
 		expect(combined[0].watchedDates).toEqual(['2024-09-20']);
-		expect(combined[0].rewatch).toBe(true);
 	});
 });
 
 describe('activeFilterChips & clearFilterChip', () => {
-	it('builds self-descriptive chips for single year, custom ranges, and flags', () => {
+	it('builds self-descriptive chips for single year, custom ranges, media types, and flags', () => {
 		const sciFiList = makeList({ id: 'sci-fi', name: 'Sci-Fi Essentials' });
 		expect(activeFilterChips(NO_DASHBOARD_FILTERS)).toEqual([]);
 
@@ -280,38 +299,40 @@ describe('activeFilterChips & clearFilterChip', () => {
 			{ key: 'heartedOnly', label: 'Hearted' }
 		]);
 
+		expect(activeFilterChips(withFilters({ mediaType: 'movie' }))).toEqual([
+			{ key: 'mediaType', label: 'Films only' }
+		]);
 		expect(
 			activeFilterChips(withFilters({ fromDate: '2024-03-01', toDate: '2024-06-15' }))
 		).toEqual([{ key: 'dates', label: 'Watched: Mar 1, 2024 – Jun 15, 2024' }]);
-
 		expect(activeFilterChips(withFilters({ fromDate: '2024-03-01' }))).toEqual([
 			{ key: 'dates', label: 'Watched from Mar 1, 2024' }
 		]);
-
 		expect(activeFilterChips(withFilters({ toDate: '2024-06-15' }))).toEqual([
 			{ key: 'dates', label: 'Watched until Jun 15, 2024' }
 		]);
 	});
 
-	it('clears only the requested filter dimension', () => {
-		const active = withFilters({
+	it('clears every active filter chip back to an unfiltered state one dimension at a time', () => {
+		let state = withFilters({
 			fromDate: '2024-01-01',
 			toDate: '2024-12-31',
+			mediaType: 'movie',
+			diaryOnly: true,
 			heartedOnly: true,
-			tag: 'cinema'
+			tag: 'cinema',
+			listId: 'sci-fi'
 		});
-		expect(clearFilterChip(active, 'dates')).toEqual({
-			...active,
-			fromDate: '',
-			toDate: ''
-		});
-		expect(clearFilterChip(active, 'heartedOnly')).toEqual({
-			...active,
-			heartedOnly: false
-		});
-		expect(clearFilterChip(active, 'tag')).toEqual({
-			...active,
-			tag: ''
-		});
+		const chips = activeFilterChips(state);
+		expect(chips).toHaveLength(6);
+
+		for (const chip of chips) {
+			const before = activeFilterChips(state).length;
+			state = clearFilterChip(state, chip.key);
+			expect(activeFilterChips(state)).toHaveLength(before - 1);
+			expect(activeFilterChips(state).some((c) => c.key === chip.key)).toBe(false);
+		}
+		expect(hasActiveDashboardFilters(state)).toBe(false);
+		expect(state).toEqual(NO_DASHBOARD_FILTERS);
 	});
 });

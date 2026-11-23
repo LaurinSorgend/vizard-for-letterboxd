@@ -1,4 +1,4 @@
-import { formatShort, starCaption } from '$lib/format';
+import { formatDateRange, starCaption } from '$lib/format';
 import { longestRun } from '$lib/math';
 import { releaseYear } from '$lib/film/release';
 import type { EnrichedFilm } from '$lib/types';
@@ -119,7 +119,7 @@ export function buildMilestones(films: EnrichedFilm[]): Milestone[] {
 			eyebrow: `Longest streak: ${streak.days} days`,
 			film: endEvent.film,
 			detail: '',
-			dateLabel: `${formatShort(streak.start)} to ${formatShort(streak.end)}`
+			dateLabel: formatDateRange(streak.start, streak.end)
 		});
 	}
 

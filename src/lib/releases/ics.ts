@@ -1,14 +1,15 @@
 import { shiftDays } from '$lib/dates';
+import { downloadBlob } from '$lib/download';
+import { SITE_HOST } from '$lib/film/links';
 import type { CalendarEntry } from './calendar';
 import { KINDS } from './kinds';
 
 const PRODID = '-//Vizard for Letterboxd//Release Calendar//EN';
-const UID_DOMAIN = 'vizard.sorgend.org';
+/** RFC 5545 Section 3.1 caps content lines at 75 UTF-8 octets. */
 const MAX_LINE_OCTETS = 75;
 const utf8 = new TextEncoder();
 
 export interface IcsOptions {
-	calendarName?: string;
 	region?: string;
 	now?: Date;
 }
@@ -32,11 +33,11 @@ function sanitizeUidPart(value: string): string {
 }
 
 function eventUid(entry: CalendarEntry): string {
-	return `${sanitizeUidPart(entry.film.key)}-${entry.kind}-${entry.date}@${UID_DOMAIN}`;
+	return `${sanitizeUidPart(entry.film.key)}-${entry.kind}-${entry.date}@${SITE_HOST}`;
 }
 
 /** Escapes text values per RFC 5545 Section 3.3.11. */
-export function escapeIcsText(value: string): string {
+function escapeIcsText(value: string): string {
 	return value
 		.replace(/\\/g, '\\\\')
 		.replace(/\r\n|\r|\n/g, '\\n')
@@ -44,15 +45,15 @@ export function escapeIcsText(value: string): string {
 		.replace(/,/g, '\\,');
 }
 
-/** Folds a single iCalendar content line so no folded line exceeds `maxOctets` UTF-8 bytes. */
-export function foldIcsLine(line: string, maxOctets = MAX_LINE_OCTETS): string {
-	if (utf8.encode(line).length <= maxOctets) return line;
+/** Folds a content line per RFC 5545 Section 3.1 so no physical line exceeds 75 UTF-8 octets. */
+function foldIcsLine(line: string): string {
+	if (utf8.encode(line).length <= MAX_LINE_OCTETS) return line;
 	const chunks: string[] = [];
 	let current = '';
 	let bytes = 0;
 	for (const char of line) {
 		const charBytes = utf8.encode(char).length;
-		if (bytes + charBytes > maxOctets && current.length > 0) {
+		if (bytes + charBytes > MAX_LINE_OCTETS && current.length > 0) {
 			chunks.push(current);
 			current = ` ${char}`;
 			bytes = 1 + charBytes;
@@ -102,14 +103,10 @@ function eventLines(entry: CalendarEntry, dtstamp: string, region?: string): str
 	return lines;
 }
 
-function defaultCalendarName(region?: string): string {
-	return region ? `Vizard Releases (${region})` : 'Vizard Releases';
-}
-
 /** Builds an RFC 5545 iCalendar string with one all-day VEVENT per calendar entry. */
 export function buildIcs(entries: CalendarEntry[], options: IcsOptions = {}): string {
 	const dtstamp = formatUtcTimestamp(options.now ?? new Date());
-	const calendarName = options.calendarName ?? defaultCalendarName(options.region);
+	const calendarName = options.region ? `Vizard Releases (${options.region})` : 'Vizard Releases';
 	const lines = [
 		'BEGIN:VCALENDAR',
 		'VERSION:2.0',
@@ -119,21 +116,9 @@ export function buildIcs(entries: CalendarEntry[], options: IcsOptions = {}): st
 		...entries.flatMap((entry) => eventLines(entry, dtstamp, options.region)),
 		'END:VCALENDAR'
 	];
-	return `${lines.map((line) => foldIcsLine(line)).join('\r\n')}\r\n`;
+	return `${lines.map(foldIcsLine).join('\r\n')}\r\n`;
 }
 
-/** Triggers a browser download for an iCalendar document and revokes its temporary object URL. */
 export function downloadIcs(content: string, filename: string): void {
-	const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
-	const url = URL.createObjectURL(blob);
-	const link = document.createElement('a');
-	link.href = url;
-	link.download = filename;
-	document.body.append(link);
-	try {
-		link.click();
-	} finally {
-		link.remove();
-		URL.revokeObjectURL(url);
-	}
+	downloadBlob(new Blob([content], { type: 'text/calendar;charset=utf-8' }), filename);
 }

@@ -10,3 +10,7 @@ export function normalizeTitle(name: string): string {
 		.replace(/[^\p{L}\p{N}]+/gu, ' ')
 		.trim();
 }
+
+export function wordCount(text: string): number {
+	return text.trim().split(/\s+/).filter(Boolean).length;
+}

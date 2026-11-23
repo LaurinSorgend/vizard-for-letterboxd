@@ -1,11 +1,12 @@
-import { formatShort } from '$lib/format';
-import { filmKey } from '$lib/ingest/film';
+import { buildListFilmMatcher } from '$lib/film/identity';
+import { isSeries } from '$lib/film/runtime';
+import { cleanTags } from '$lib/film/tally';
+import { formatIsoDate } from '$lib/format';
 import type { CustomList, EnrichedFilm } from '$lib/types';
 
 export interface DashboardFilters {
-	/** ISO date lower bound (YYYY-MM-DD) for diary watched dates, or '' for none. */
+	/** ISO date lower bound (YYYY-MM-DD), or '' for none. */
 	fromDate: string;
-	/** ISO date upper bound (YYYY-MM-DD) for diary watched dates, or '' for none. */
 	toDate: string;
 	mediaType: 'all' | 'movie' | 'tv';
 	diaryOnly: boolean;
@@ -26,40 +27,27 @@ export const NO_DASHBOARD_FILTERS: DashboardFilters = {
 	listId: ''
 };
 
-function normalizeTags(tags: string[]): string[] {
-	return tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
-}
-
-function normalizeUri(uri: string): string {
-	return uri.trim().replace(/\/+$/, '').toLowerCase();
-}
-
-function inDateWindow(date: string, fromDate: string, toDate: string): boolean {
-	const trimmed = date.trim();
-	if (trimmed.length === 0) return false;
-	return (!fromDate || trimmed >= fromDate) && (!toDate || trimmed <= toDate);
-}
-
 export interface FilterChip {
 	key: 'dates' | 'mediaType' | 'diaryOnly' | 'tag' | 'heartedOnly' | 'listId';
 	label: string;
 }
 
-function formatFilterDate(iso: string): string {
-	return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? formatShort(iso) : iso;
+/** Returns the year string when `fromDate`..`toDate` spans an exact calendar year, else null. */
+export function fullCalendarYear(fromDate: string, toDate: string): string | null {
+	const from = fromDate.trim();
+	const to = toDate.trim();
+	const match = /^(\d{4})-01-01$/.exec(from);
+	return match && to === `${match[1]}-12-31` ? match[1] : null;
 }
 
-/** Formats the active watch-date window into a short self-descriptive label. */
 function dateChipLabel(fromDate: string, toDate: string): string {
-	const match = /^(\d{4})-01-01$/.exec(fromDate);
-	if (match && toDate === `${match[1]}-12-31`) return `Watched: ${match[1]}`;
-	if (fromDate && toDate)
-		return `Watched: ${formatFilterDate(fromDate)} – ${formatFilterDate(toDate)}`;
-	if (fromDate) return `Watched from ${formatFilterDate(fromDate)}`;
-	return `Watched until ${formatFilterDate(toDate)}`;
+	const year = fullCalendarYear(fromDate, toDate);
+	if (year) return `Watched: ${year}`;
+	if (fromDate && toDate) return `Watched: ${formatIsoDate(fromDate)} – ${formatIsoDate(toDate)}`;
+	if (fromDate) return `Watched from ${formatIsoDate(fromDate)}`;
+	return `Watched until ${formatIsoDate(toDate)}`;
 }
 
-/** Concise labels for each currently active filter, used in collapsed summary chips. */
 export function activeFilterChips(
 	filters: DashboardFilters,
 	lists: CustomList[] = []
@@ -70,17 +58,18 @@ export function activeFilterChips(
 	if (fromDate || toDate) chips.push({ key: 'dates', label: dateChipLabel(fromDate, toDate) });
 	if (filters.mediaType === 'movie') chips.push({ key: 'mediaType', label: 'Films only' });
 	else if (filters.mediaType === 'tv') chips.push({ key: 'mediaType', label: 'Series only' });
-	if (filters.tag.trim()) chips.push({ key: 'tag', label: `Tag: ${filters.tag.trim()}` });
-	if (filters.listId.trim()) {
-		const list = lists.find((entry) => entry.id === filters.listId.trim());
-		chips.push({ key: 'listId', label: `List: ${list?.name ?? filters.listId.trim()}` });
+	const tag = filters.tag.trim();
+	if (tag) chips.push({ key: 'tag', label: `Tag: ${tag}` });
+	const listId = filters.listId.trim();
+	if (listId) {
+		const list = lists.find((entry) => entry.id === listId);
+		chips.push({ key: 'listId', label: `List: ${list?.name ?? listId}` });
 	}
 	if (filters.diaryOnly) chips.push({ key: 'diaryOnly', label: 'Diary-logged' });
 	if (filters.heartedOnly) chips.push({ key: 'heartedOnly', label: 'Hearted' });
 	return chips;
 }
 
-/** Returns a copy of `filters` with the given chip's constraint cleared. */
 export function clearFilterChip(
 	filters: DashboardFilters,
 	key: FilterChip['key']
@@ -101,66 +90,14 @@ export function clearFilterChip(
 	}
 }
 
-/** Whether any dashboard filter narrows the library. */
 export function hasActiveDashboardFilters(filters: DashboardFilters): boolean {
-	return (
-		filters.fromDate.trim().length > 0 ||
-		filters.toDate.trim().length > 0 ||
-		filters.mediaType !== 'all' ||
-		filters.diaryOnly ||
-		filters.tag.trim().length > 0 ||
-		filters.heartedOnly ||
-		filters.listId.trim().length > 0
-	);
+	return activeFilterChips(filters).length > 0;
 }
 
-/** Distinct watch years present in diary dates, newest first. */
-export function availableWatchYears(films: EnrichedFilm[]): number[] {
-	const years = new Set<number>();
-	for (const film of films) {
-		for (const date of film.watchedDates) {
-			const match = /^(\d{4})/.exec(date.trim());
-			if (!match) continue;
-			const year = Number.parseInt(match[1], 10);
-			if (Number.isFinite(year)) years.add(year);
-		}
-	}
-	return [...years].sort((a, b) => b - a);
-}
-
-/** Distinct trimmed non-empty diary tags with film counts, busiest first then alphabetical. */
-export function availableTags(films: EnrichedFilm[]): { tag: string; count: number }[] {
-	const counts = new Map<string, number>();
-	for (const film of films) {
-		for (const tag of new Set(normalizeTags(film.tags))) {
-			counts.set(tag, (counts.get(tag) ?? 0) + 1);
-		}
-	}
-	return [...counts]
-		.map(([tag, count]) => ({ tag, count }))
-		.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
-}
-
-function buildListMatcher(
-	lists: CustomList[],
-	listId: string
-): ((film: EnrichedFilm) => boolean) | null {
-	if (!listId) return null;
-	const list = lists.find((entry) => entry.id === listId);
-	if (!list) return null;
-
-	const keys = new Set<string>();
-	const uris = new Set<string>();
-	for (const item of list.items) {
-		keys.add(filmKey(item.name.trim(), item.year));
-		const uri = normalizeUri(item.uri);
-		if (uri) uris.add(uri);
-	}
-	return (film) => {
-		if (keys.has(filmKey(film.name.trim(), film.year))) return true;
-		const uri = normalizeUri(film.uri);
-		return uri.length > 0 && uris.has(uri);
-	};
+function inDateWindow(date: string, fromDate: string, toDate: string): boolean {
+	const trimmed = date.trim();
+	if (trimmed.length === 0) return false;
+	return (!fromDate || trimmed >= fromDate) && (!toDate || trimmed <= toDate);
 }
 
 function clipToDateWindow(
@@ -191,15 +128,18 @@ export function filterDashboardFilms(
 	const toDate = filters.toDate.trim();
 	const hasDateWindow = fromDate.length > 0 || toDate.length > 0;
 	const targetTag = filters.tag.trim();
-	const matchesList = buildListMatcher(lists, filters.listId.trim());
+	const targetList = filters.listId.trim()
+		? lists.find((entry) => entry.id === filters.listId.trim())
+		: undefined;
+	const matchesList = targetList ? buildListFilmMatcher(targetList) : null;
 
 	const result: EnrichedFilm[] = [];
 	for (const film of films) {
-		if (filters.mediaType !== 'all' && (film.tmdb?.mediaType ?? 'movie') !== filters.mediaType)
-			continue;
+		if (filters.mediaType === 'tv' && !isSeries(film)) continue;
+		if (filters.mediaType === 'movie' && isSeries(film)) continue;
 		if (filters.heartedOnly && !film.liked) continue;
 		if (filters.diaryOnly && film.watchedDates.length === 0) continue;
-		if (targetTag && !normalizeTags(film.tags).includes(targetTag)) continue;
+		if (targetTag && !cleanTags(film.tags).includes(targetTag)) continue;
 		if (matchesList && !matchesList(film)) continue;
 
 		if (hasDateWindow) {

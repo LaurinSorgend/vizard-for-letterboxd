@@ -6,8 +6,10 @@ import { votes } from '$lib/film/votes';
 import { releaseYear } from '$lib/film/release';
 import { latestWatch } from '$lib/film/diary';
 import { DAY_MS, median } from '$lib/math';
-import { avgRating, type BarDatum } from '$lib/film/tally';
+import { avgRating, likedCount, type BarDatum } from '$lib/film/tally';
 import type { EnrichedFilm } from '$lib/types';
+
+export { likedCount };
 
 /** Counts per rating step 0.5–5, each split by whether you hearted it; empty steps included. */
 export function ratingHistogram(films: EnrichedFilm[]): BarDatum[] {
@@ -27,9 +29,6 @@ export function ratingHistogram(films: EnrichedFilm[]): BarDatum[] {
 		};
 	});
 }
-
-export const likedCount = (films: EnrichedFilm[]): number =>
-	films.filter((film) => film.liked).length;
 
 /** Diary watch events per calendar year, gaps filled with zeros. */
 export function watchesPerYear(films: EnrichedFilm[]): BarDatum[] {

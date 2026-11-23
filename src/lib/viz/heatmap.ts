@@ -6,6 +6,7 @@ import {
 	HALF_STAR_THRESHOLDS,
 	quantileCuts
 } from './ramp';
+import { isValidIsoDay } from '$lib/dates';
 import { avgRating } from '$lib/film/tally';
 import { minuteLabel } from '$lib/format';
 import { getOrCreate } from '$lib/maps';
@@ -86,8 +87,7 @@ function emptyBucket(): Bucket {
 	return { minutes: 0, films: [] };
 }
 
-/** Watch buckets keyed by calendar day (YYYY-MM-DD); the daily and weekly grids share one. */
-export type DayBuckets = Map<string, Bucket>;
+type DayBuckets = Map<string, Bucket>;
 
 function toUtcDate(iso: string): Date {
 	const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
@@ -131,10 +131,9 @@ function daysSinceMonday(date: Date): number {
 	return (date.getUTCDay() + 6) % 7;
 }
 
-/** The YYYY-MM-DD day of a diary date, or null when the date is too short to read. */
 function diaryDay(date: string): string | null {
-	const day = date.slice(0, 10);
-	return day.length === 10 ? day : null;
+	const day = date.trim().slice(0, 10);
+	return isValidIsoDay(day) ? day : null;
 }
 
 /** Each diary watch's `periodMinutes`, summed into its calendar day (YYYY-MM-DD). */
@@ -153,26 +152,10 @@ export function bucketsByDay(films: EnrichedFilm[]): DayBuckets {
 	return days;
 }
 
-const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** Distinct calendar years present in `byDay`, newest first. */
 export function diaryYears(byDay: DayBuckets): number[] {
 	const years = new Set<number>();
 	for (const day of byDay.keys()) {
-		const match = ISO_DAY.exec(day);
-		if (!match) continue;
-		const year = Number(match[1]);
-		const month = Number(match[2]);
-		const date = Number(match[3]);
-		const utc = new Date(Date.UTC(year, month - 1, date));
-		if (
-			utc.getUTCFullYear() !== year ||
-			utc.getUTCMonth() !== month - 1 ||
-			utc.getUTCDate() !== date
-		) {
-			continue;
-		}
-		years.add(year);
+		if (isValidIsoDay(day)) years.add(Number(day.slice(0, 4)));
 	}
 	return [...years].sort((a, b) => b - a);
 }

@@ -1,9 +1,8 @@
-import type { D1Database } from '@cloudflare/workers-types';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CollectionParts } from '$lib/types';
 import { FetchBudget, RetryLater } from './budget';
-import type { Cache } from './cache';
-import { fetchCollection, withPartsUpgrade } from './collections';
+import { collections, fetchCollection } from './collections';
+import { d1Facade } from './local-db';
 
 // SvelteKit bakes $env/dynamic/private from the environment at config time, so stubbing the
 // process env in a test does not reach it.
@@ -43,7 +42,7 @@ describe('fetchCollection', () => {
 		});
 	});
 
-	it('skips malformed part entries while preserving the reported total', async () => {
+	it('skips malformed part entries while preserving the reported total, and returns null without parts', async () => {
 		stub({
 			id: 8091,
 			name: 'Alien Collection',
@@ -55,6 +54,9 @@ describe('fetchCollection', () => {
 			total: 2,
 			parts: [{ tmdbId: 348, title: 'Alien', year: 1979, posterPath: null }]
 		});
+
+		stub({ id: 8091, name: 'Malformed' });
+		await expect(fetchCollection(new FetchBudget(5), 8091)).resolves.toBeNull();
 	});
 
 	it('fails for good, not for a retry, when TMDB has no such collection', async () => {
@@ -65,26 +67,24 @@ describe('fetchCollection', () => {
 	});
 });
 
-describe('withPartsUpgrade', () => {
+describe('collections cache', () => {
 	it('treats legacy cached rows without parts as misses while keeping upgraded rows', async () => {
-		const base: Cache<number, CollectionParts | null> = {
-			getMany: async () =>
-				new Map<number, CollectionParts | null>([
-					[1, { id: 1, name: 'Legacy Collection', total: 3 }],
-					[
-						2,
-						{
-							id: 2,
-							name: 'Fresh Collection',
-							total: 1,
-							parts: [{ tmdbId: 10, title: 'One', year: 2020, posterPath: null }]
-						}
-					]
-				]),
-			putMany: vi.fn(async () => {})
-		};
-		const upgraded = await withPartsUpgrade(base).getMany({} as D1Database, [1, 2]);
-		expect(upgraded.has(1)).toBe(false);
-		expect(upgraded.get(2)?.parts).toHaveLength(1);
+		const db = d1Facade(new Database(':memory:'));
+		await collections.cache.putMany(db, [
+			[1, { id: 1, name: 'Legacy Collection', total: 3 }],
+			[
+				2,
+				{
+					id: 2,
+					name: 'Fresh Collection',
+					total: 1,
+					parts: [{ tmdbId: 10, title: 'One', year: 2020, posterPath: null }]
+				}
+			]
+		]);
+
+		const cached = await collections.cache.getMany(db, [1, 2]);
+		expect(cached.has(1)).toBe(false);
+		expect(cached.get(2)?.parts).toHaveLength(1);
 	});
 });

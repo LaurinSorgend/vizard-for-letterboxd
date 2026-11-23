@@ -1,3 +1,5 @@
+import { webHref } from '$lib/film/links';
+
 export type ReviewNode =
 	| { type: 'text'; text: string }
 	| { type: 'br' }
@@ -29,13 +31,8 @@ function safeHref(attrs: string | undefined): string | null {
 	if (!attrs) return null;
 	const match = attrs.match(HREF_RE);
 	const raw = (match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim();
-	if (!/^https?:\/\//i.test(raw)) return null;
-	try {
-		const url = new URL(raw);
-		return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
-	} catch {
-		return null;
-	}
+	const safe = webHref(raw);
+	return safe ? new URL(safe).href : null;
 }
 
 function pushText(target: ReviewNode[], text: string): void {
@@ -58,6 +55,7 @@ function trimEdgeNewlines(nodes: ReviewNode[]): void {
 	}
 }
 
+/** Strips newlines hugging blockquotes so `white-space: pre-line` in `ReviewBody` does not double-space them. */
 function tidyBlockquotes(nodes: ReviewNode[]): ReviewNode[] {
 	for (let i = 0; i < nodes.length; i++) {
 		const node = nodes[i];
@@ -86,7 +84,7 @@ export function parseReviewMarkup(input: string): ReviewNode[] {
 
 	let cursor = 0;
 	for (const match of normalized.matchAll(TAG_RE)) {
-		const index = match.index ?? 0;
+		const index = match.index;
 		const [full, slash, rawName, attrs, selfClose] = match;
 		pushText(current(), normalized.slice(cursor, index));
 		cursor = index + full.length;
@@ -138,7 +136,6 @@ function collectPlain(nodes: ReviewNode[], parts: string[]): void {
 	}
 }
 
-/** Extracts visible plain text from a review with supported HTML tags removed. */
 export function plainReviewText(input: string): string {
 	const parts: string[] = [];
 	collectPlain(parseReviewMarkup(input), parts);

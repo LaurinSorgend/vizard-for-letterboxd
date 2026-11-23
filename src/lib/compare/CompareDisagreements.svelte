@@ -1,8 +1,12 @@
 <script lang="ts">
-	import { webHref } from '$lib/film/links';
 	import { fixed, starCaption } from '$lib/format';
+	import { clamp } from '$lib/random';
+	import { FAVOURITE_RATING } from '$lib/recommend/taste';
+	import FilmLink from '$lib/viz/chart/FilmLink.svelte';
 	import MetricToggle from '$lib/viz/MetricToggle.svelte';
-	import type { MutualFavourite, RatingDisagreement } from './compare';
+	import ShowMore from '$lib/viz/ShowMore.svelte';
+	import { pager } from '$lib/viz/pager.svelte';
+	import { MIN_DISAGREEMENT_DIFF, type MutualFavourite, type RatingDisagreement } from './compare';
 
 	const PAGE_SIZE = 15;
 
@@ -19,23 +23,23 @@
 	} = $props();
 
 	let tab = $state<'disagreements' | 'favourites'>('disagreements');
-	let showAllDisagreements = $state(false);
-	let showAllFavourites = $state(false);
 
-	const visibleDisagreements = $derived(
-		showAllDisagreements ? disagreements : disagreements.slice(0, PAGE_SIZE)
+	const disagreementPager = pager(
+		() => disagreements.length,
+		() => PAGE_SIZE
 	);
-	const visibleFavourites = $derived(
-		showAllFavourites ? mutualFavourites : mutualFavourites.slice(0, PAGE_SIZE)
+	const favouritePager = pager(
+		() => mutualFavourites.length,
+		() => PAGE_SIZE
 	);
 
-	function pct(rating: number): number {
-		return Math.max(0, Math.min(100, (rating / 5) * 100));
-	}
+	const visibleDisagreements = $derived(disagreements.slice(0, disagreementPager.shown));
+	const visibleFavourites = $derived(mutualFavourites.slice(0, favouritePager.shown));
+
+	const pct = (rating: number): number => clamp((rating / 5) * 100, 0, 100);
 
 	function signedGap(diff: number): string {
-		const sign = diff > 0 ? '+' : '';
-		return `${sign}${fixed(diff, 1)}`;
+		return `${diff > 0 ? '+' : ''}${fixed(diff, 1)}`;
 	}
 </script>
 
@@ -55,7 +59,9 @@
 
 	{#if tab === 'disagreements'}
 		{#if disagreements.length === 0}
-			<p class="empty">No rating gaps of 1 star or more across shared rated films.</p>
+			<p class="empty">
+				No rating gaps of {MIN_DISAGREEMENT_DIFF} star or more across shared rated films.
+			</p>
 		{:else}
 			<div class="legend" aria-hidden="true">
 				<span class="legend-item"><span class="swatch you"></span>{yourName}</span>
@@ -64,17 +70,12 @@
 			</div>
 
 			<ol class="rows">
-				{#each visibleDisagreements as row (`${row.uri}:${row.title}:${row.year}`)}
-					{@const href = webHref(row.uri)}
+				{#each visibleDisagreements as row (row.key)}
 					{@const left = pct(Math.min(row.ratingA, row.ratingB))}
 					{@const width = pct(Math.max(row.ratingA, row.ratingB)) - left}
 					<li class="row">
 						<div class="film-cell">
-							{#if href}
-								<a {href} target="_blank" rel="noopener">{row.title}</a>
-							{:else}
-								<span>{row.title}</span>
-							{/if}
+							<FilmLink film={{ name: row.title, uri: row.uri }} />
 							{#if row.year}
 								<span class="year" data-numeric>{row.year}</span>
 							{/if}
@@ -103,21 +104,15 @@
 				{/each}
 			</ol>
 
-			{#if disagreements.length > PAGE_SIZE}
-				<button
-					type="button"
-					class="more-btn"
-					onclick={() => (showAllDisagreements = !showAllDisagreements)}
-				>
-					{showAllDisagreements ? `Show top ${PAGE_SIZE}` : `Show all (${disagreements.length})`}
-				</button>
-			{/if}
+			<ShowMore pager={disagreementPager} />
 		{/if}
 	{:else if mutualFavourites.length === 0}
-		<p class="empty">No mutual favourites yet (films both rated 4★+ or hearted).</p>
+		<p class="empty">
+			No mutual favourites yet (films both rated {FAVOURITE_RATING}★+ or hearted).
+		</p>
 	{:else}
 		<div class="table-wrap">
-			<table class="fav-table">
+			<table class="compare-table">
 				<thead>
 					<tr>
 						<th scope="col">Film</th>
@@ -126,15 +121,10 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each visibleFavourites as row (`${row.uri}:${row.title}:${row.year}`)}
-						{@const href = webHref(row.uri)}
+					{#each visibleFavourites as row (row.key)}
 						<tr>
 							<td class="title-col">
-								{#if href}
-									<a {href} target="_blank" rel="noopener">{row.title}</a>
-								{:else}
-									<span>{row.title}</span>
-								{/if}
+								<FilmLink film={{ name: row.title, uri: row.uri }} />
 								{#if row.year}
 									<span class="year" data-numeric>{row.year}</span>
 								{/if}
@@ -157,71 +147,19 @@
 			</table>
 		</div>
 
-		{#if mutualFavourites.length > PAGE_SIZE}
-			<button
-				type="button"
-				class="more-btn"
-				onclick={() => (showAllFavourites = !showAllFavourites)}
-			>
-				{showAllFavourites ? `Show top ${PAGE_SIZE}` : `Show all (${mutualFavourites.length})`}
-			</button>
-		{/if}
+		<ShowMore pager={favouritePager} />
 	{/if}
 </section>
 
 <style>
-	.compare-block {
-		margin: 0 0 32px;
-		padding-top: 24px;
-		border-top: 1px solid var(--border);
-	}
-	.block-head {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 8px 16px;
-		margin-bottom: 12px;
-	}
-	h3 {
-		margin: 0;
-		color: var(--fg);
-	}
-	.legend {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px 16px;
-		margin-bottom: 12px;
-		font-size: var(--text-sm);
-		color: var(--fg-secondary);
-	}
-	.legend-item {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-	}
 	.legend-note {
 		color: var(--fg-muted);
 	}
-	.swatch,
 	.mini-swatch {
 		display: inline-block;
 		flex-shrink: 0;
-	}
-	.swatch {
-		width: 10px;
-		height: 10px;
-	}
-	.mini-swatch {
 		width: 8px;
 		height: 8px;
-	}
-	.you {
-		background: var(--accent);
-	}
-	.friend {
-		background: var(--bar);
 	}
 	.rows {
 		list-style: none;
@@ -250,11 +188,13 @@
 		align-items: baseline;
 		gap: 6px;
 	}
-	.film-cell a {
+	.film-cell :global(a),
+	.title-col :global(a) {
 		color: var(--fg);
 		text-decoration: none;
 	}
-	.film-cell a:hover {
+	.film-cell :global(a:hover),
+	.title-col :global(a:hover) {
 		color: var(--accent);
 		text-decoration: underline;
 	}
@@ -302,62 +242,11 @@
 		text-align: right;
 		color: var(--fg-secondary);
 	}
-	.table-wrap {
-		overflow-x: auto;
-	}
-	.fav-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-family: var(--font-sans);
-	}
-	.fav-table th,
-	.fav-table td {
-		padding: 8px 10px 8px 0;
-		border-bottom: 1px solid var(--border);
-		text-align: left;
-		font-size: var(--text-sm);
-	}
-	.fav-table th {
-		color: var(--fg-secondary);
-		font-weight: 500;
-		border-bottom: 1px solid var(--border-strong);
-	}
-	.fav-table .num {
-		text-align: right;
-		white-space: nowrap;
-		padding-right: 0;
-		padding-left: 16px;
-	}
-	.title-col a {
-		color: var(--fg);
-		text-decoration: none;
-	}
-	.title-col a:hover {
-		color: var(--accent);
-		text-decoration: underline;
-	}
 	.title-col .year {
 		margin-left: 6px;
 	}
 	.heart {
 		margin-left: 4px;
 		color: var(--liked);
-	}
-	.more-btn {
-		margin-top: 12px;
-		font: inherit;
-		font-size: var(--text-sm);
-		padding: 4px 12px;
-		color: var(--fg);
-		background: var(--bg-secondary);
-		border: 1px solid var(--border-strong);
-		cursor: pointer;
-	}
-	.more-btn:hover {
-		background: var(--surface);
-	}
-	.empty {
-		margin: 0;
-		color: var(--fg-secondary);
 	}
 </style>

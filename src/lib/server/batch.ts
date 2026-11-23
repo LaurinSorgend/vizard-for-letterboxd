@@ -33,6 +33,23 @@ export async function requestContext(
 export const isInteger = (value: unknown): value is number => Number.isInteger(value);
 
 /**
+ * Validates `body[field]` as a bounded array of items matching `isItem`, throwing 400 otherwise.
+ */
+export function validateBatch<T>(
+	body: Record<string, unknown> | null,
+	field: string,
+	isItem: (item: unknown) => item is T,
+	expected: string
+): T[] {
+	const items = body?.[field];
+	if (!body || !Array.isArray(items) || !items.every(isItem)) {
+		error(400, `Expected body: ${expected}`);
+	}
+	if (items.length > MAX_BATCH) error(400, `Batch too large, send at most ${MAX_BATCH} items`);
+	return items;
+}
+
+/**
  * The items under `field` of a batch request's JSON body, and the body for any other fields.
  * Answers 400 with `Expected body: <expected>` when the list is missing or holds an item that
  * fails `isItem`, and when it is longer than MAX_BATCH.
@@ -44,12 +61,8 @@ export async function readBatch<T>(
 	expected: string
 ): Promise<{ items: T[]; body: Record<string, unknown> }> {
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-	const items = body?.[field];
-	if (!body || !Array.isArray(items) || !items.every(isItem)) {
-		error(400, `Expected body: ${expected}`);
-	}
-	if (items.length > MAX_BATCH) error(400, `Batch too large, send at most ${MAX_BATCH} items`);
-	return { items, body };
+	const items = validateBatch(body, field, isItem, expected);
+	return { items, body: body! };
 }
 
 export interface BatchLookup<T, K, V> {

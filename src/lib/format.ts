@@ -63,7 +63,7 @@ export function starCaption(rating: number | null): string {
  */
 
 function parseUtcDate(iso: string): Date {
-	return new Date(iso.includes('T') ? iso : `${iso}T00:00:00Z`);
+	return new Date(`${iso}T00:00:00Z`);
 }
 
 /** "Mar 5, 2026". */
@@ -74,6 +74,11 @@ export function formatShort(iso: string): string {
 		year: 'numeric',
 		timeZone: 'UTC'
 	});
+}
+
+/** Formats a YYYY-MM-DD string with `formatShort`, returning non-ISO values unchanged. */
+export function formatIsoDate(raw: string): string {
+	return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? formatShort(raw) : raw;
 }
 
 /** "5 Mar", for dates whose year is already given. */
@@ -99,10 +104,10 @@ export function formatDateRange(from: string, to: string, withinYear?: number): 
 		: `${formatShort(from)} to ${formatShort(to)}`;
 }
 
-/** A day count as a rough span: "12 days", "5 months", "3.2 years". */
+/** A day count as a rough span: "1 day", "12 days", "5 months", "3.2 years". */
 export function formatDays(days: number): string {
-	if (days < 60) return `${Math.round(days)} days`;
-	if (days < 365) return `${Math.round(days / 30)} months`;
+	if (days < 60) return plural(Math.round(days), 'day');
+	if (days < 365) return plural(Math.round(days / 30), 'month');
 	return `${(days / 365).toFixed(1)} years`;
 }
 

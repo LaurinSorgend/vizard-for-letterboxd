@@ -1,7 +1,6 @@
-import { isFavourite } from '$lib/recommend/taste';
+import { FAVOURITE_RATING, isFavourite } from './taste';
 import { isTmdbMovie, type EnrichedFilm, type TmdbMovie } from '$lib/types';
 
-const LIKED_UNRATED_RATING = 4;
 const RATING_OFFSET = 2.5;
 const MIN_WEIGHT = 0.5;
 const AFFINITY_HALF = 2;
@@ -26,7 +25,6 @@ const TOP_CAST = 10;
 const REASON_CAST_NAMES = 2;
 const REASON_KEYWORDS = 3;
 
-/** Final per-feature affinities derived from a viewer's favourite films. */
 export interface TasteProfile {
 	directors: Map<number, number>;
 	cast: Map<number, number>;
@@ -34,13 +32,11 @@ export interface TasteProfile {
 	collections: Set<number>;
 }
 
-/** Similarity score and short explanation for one film against a taste profile. */
 export interface TasteMatch {
 	score: number;
 	reason: string;
 }
 
-/** An upcoming film with its similarity score and a short reason. */
 interface ScoredFilm extends TasteMatch {
 	record: TmdbMovie;
 }
@@ -73,7 +69,7 @@ function add<K>(map: Map<K, number>, key: K, value: number): void {
 
 function favouriteWeight(film: EnrichedFilm): number | null {
 	if (!isFavourite(film)) return null;
-	const r = film.rating ?? LIKED_UNRATED_RATING;
+	const r = film.rating ?? FAVOURITE_RATING;
 	return Math.max(MIN_WEIGHT, r - RATING_OFFSET);
 }
 
@@ -142,7 +138,6 @@ function keywordAffinities(
 	return out;
 }
 
-/** Builds director, cast, keyword and series affinities from the viewer's favourite movies. */
 export function buildTasteProfile(films: EnrichedFilm[]): TasteProfile {
 	const library = films.flatMap((f) => (isTmdbMovie(f.tmdb) ? [f.tmdb] : []));
 	const favs = favourites(films);
@@ -255,7 +250,6 @@ function reasonFor(c: Components): string {
 	return parts.join(' · ');
 }
 
-/** True when the profile holds at least one director, cast, keyword, or series affinity. */
 export function hasTasteSignals(profile: TasteProfile): boolean {
 	return (
 		profile.directors.size > 0 ||
@@ -265,7 +259,6 @@ export function hasTasteSignals(profile: TasteProfile): boolean {
 	);
 }
 
-/** Scores a single film against the profile without cast-count, threshold, or count cutoffs. */
 export function scoreFilm(profile: TasteProfile, record: TmdbMovie): TasteMatch {
 	const c = components(profile, record);
 	return { score: combine(c), reason: reasonFor(c) };
@@ -274,7 +267,6 @@ export function scoreFilm(profile: TasteProfile, record: TmdbMovie): TasteMatch 
 const isCandidate = (record: TmdbMovie): boolean =>
 	record.directors.length > 0 && record.cast.length >= MIN_CANDIDATE_CAST;
 
-/** Scores upcoming films against the profile; returns the best matches above the threshold. */
 export function scoreUpcoming(profile: TasteProfile, records: TmdbMovie[]): ScoredFilm[] {
 	return records
 		.filter(isCandidate)

@@ -1,29 +1,30 @@
-import type { RegionOffers, WatchlistFilm } from '$lib/types';
-import { serviceCounts, streamingOn, type OffersOf } from './filter';
+import { DAY_MS } from '$lib/math';
+import type { WatchlistFilm } from '$lib/types';
+import {
+	hasRentOrBuy,
+	serviceCounts,
+	streamingOn,
+	type OffersOf,
+	type ServiceCount
+} from './filter';
 
-const MS_PER_DAY = 86_400_000;
-
-/** The oldest dated entry on the watchlist. */
-export interface OldestEntry {
+interface OldestEntry {
 	name: string;
 	added: string;
 	daysAgo: number;
 }
 
-/** Streaming coverage on the viewer's selected services. */
-export interface SelectedServiceCoverage {
+interface SelectedServiceCoverage {
 	count: number;
 	pct: number | null;
 }
 
-/** The single service streaming the most watchlist films. */
-export interface TopService {
+interface TopService {
 	name: string;
 	films: number;
 	pct: number;
 }
 
-/** Backlog and streaming-coverage metrics for the watchlist. */
 export interface WatchlistSummary {
 	total: number;
 	totalHours: number;
@@ -38,14 +39,10 @@ export interface WatchlistSummary {
 	onSelectedServices: SelectedServiceCoverage | null;
 	topService: TopService | null;
 	unmatched: number;
-	loading: boolean;
 }
 
 const pctOf = (part: number, whole: number): number | null =>
 	whole > 0 ? Math.round((part / whole) * 100) : null;
-
-const hasRentOrBuy = (offers: RegionOffers | null): boolean =>
-	offers !== null && (offers.rent.length > 0 || offers.buy.length > 0);
 
 function runtimeMetrics(films: WatchlistFilm[]): {
 	totalHours: number;
@@ -83,11 +80,16 @@ function oldestEntry(films: WatchlistFilm[], now: Date): OldestEntry | null {
 		}
 	}
 	if (!best) return null;
-	const daysAgo = Math.max(0, Math.floor((now.getTime() - best.time) / MS_PER_DAY));
+	const daysAgo = Math.max(0, Math.floor((now.getTime() - best.time) / DAY_MS));
 	return { name: best.name, added: best.added, daysAgo };
 }
 
-function offerMetrics(films: WatchlistFilm[], offersOf: OffersOf, services: number[]) {
+function offerMetrics(
+	films: WatchlistFilm[],
+	offersOf: OffersOf,
+	services: number[],
+	counts: ServiceCount[]
+) {
 	let checked = 0;
 	let streamingAny = 0;
 	let rentOnly = 0;
@@ -111,11 +113,15 @@ function offerMetrics(films: WatchlistFilm[], offersOf: OffersOf, services: numb
 		}
 	}
 
-	const counts = serviceCounts(films, offersOf);
 	const lead = counts[0];
-	const topService: TopService | null = lead
-		? { name: lead.provider.name, films: lead.films, pct: pctOf(lead.films, checked) ?? 0 }
-		: null;
+	const topService: TopService | null =
+		lead && checked > 0
+			? {
+					name: lead.provider.name,
+					films: lead.films,
+					pct: Math.round((lead.films / checked) * 100)
+				}
+			: null;
 
 	return {
 		checked,
@@ -129,21 +135,19 @@ function offerMetrics(films: WatchlistFilm[], offersOf: OffersOf, services: numb
 	};
 }
 
-/** Summarises watchlist backlog size, watch time, age, and regional streaming coverage. */
 export function watchlistSummary(
 	films: WatchlistFilm[],
 	offersOf: OffersOf,
 	services: number[],
-	loading: boolean,
-	now: Date = new Date()
+	options: { counts?: ServiceCount[]; now?: Date } = {}
 ): WatchlistSummary {
+	const counts = options.counts ?? serviceCounts(films, offersOf);
 	const unmatched = films.reduce((n, f) => n + (f.tmdb ? 0 : 1), 0);
 	return {
 		total: films.length,
 		...runtimeMetrics(films),
-		oldest: oldestEntry(films, now),
-		...offerMetrics(films, offersOf, services),
-		unmatched,
-		loading
+		oldest: oldestEntry(films, options.now ?? new Date()),
+		...offerMetrics(films, offersOf, services, counts),
+		unmatched
 	};
 }

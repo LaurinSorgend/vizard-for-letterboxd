@@ -1,26 +1,25 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
 	import { count, formatDays, formatShort } from '$lib/format';
 	import Section from '../Section.svelte';
+	import { getDashboard } from '../state.svelte';
 	import FilmLink from '$lib/viz/chart/FilmLink.svelte';
 	import { pager } from '$lib/viz/pager.svelte';
-	import { rewatchShifts, rewatchShiftSummary } from '$lib/viz/personal';
+	import { rewatchAnalysis } from '$lib/viz/personal';
 	import RankedBars from '$lib/viz/RankedBars.svelte';
 	import ShowMore from '$lib/viz/ShowMore.svelte';
 	import { mostRewatched } from '$lib/viz/stats';
 
 	const SHIFT_LIMIT = 10;
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
-	const rewatched = $derived(mostRewatched(library.filteredFilms));
-	const shifts = $derived(rewatchShifts(library.filteredFilms));
-	const shiftSummary = $derived(rewatchShiftSummary(library.filteredFilms));
+	const rewatched = $derived(mostRewatched(dashboard.films));
+	const analysis = $derived(rewatchAnalysis(dashboard.films));
 	const shiftPaging = pager(
-		() => shifts.length,
+		() => analysis.shifts.length,
 		() => SHIFT_LIMIT
 	);
-	const visibleShifts = $derived(shifts.slice(0, shiftPaging.shown));
+	const visibleShifts = $derived(analysis.shifts.slice(0, shiftPaging.shown));
 
 	function formatDelta(delta: number): string {
 		const sign = delta > 0 ? '+' : '-';
@@ -28,23 +27,21 @@
 	}
 
 	function formatSpan(days: number): string {
-		if (days === 0) return 'same day';
-		if (days === 1) return '1 day';
-		return formatDays(days);
+		return days === 0 ? 'same day' : formatDays(days);
 	}
 </script>
 
-{#if rewatched.length > 0 || shifts.length > 0}
+{#if rewatched.length > 0 || analysis.shifts.length > 0}
 	<Section id="rewatches" title="Films you return to">
 		{#if rewatched.length > 0}
 			<RankedBars data={rewatched} description="Diary entries per rewatched film" />
 		{/if}
 
-		{#if shifts.length > 0}
+		{#if analysis.shifts.length > 0}
 			<h3 class="spaced">How your mind changed on rewatch</h3>
 			<p class="chart-note">
-				{count(shiftSummary.improved)} rose and {count(shiftSummary.dropped)} fell{#if shiftSummary.unchanged > 0},
-					while {count(shiftSummary.unchanged)} stayed the same{/if} across multi-rated rewatches.
+				{count(analysis.improved)} rose and {count(analysis.dropped)} fell{#if analysis.unchanged > 0},
+					while {count(analysis.unchanged)} stayed the same{/if} across multi-rated rewatches.
 			</p>
 			<ul class="shifts">
 				{#each visibleShifts as shift (shift.film.uri)}

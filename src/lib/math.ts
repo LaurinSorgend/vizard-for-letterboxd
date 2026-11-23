@@ -56,7 +56,8 @@ export function linearFit(xs: number[], ys: number[]): LinearFit | null {
 	}
 	if (sxx === 0 || syy === 0) return null;
 	const slope = sxy / sxx;
-	return { slope, intercept: meanY - slope * meanX, r: sxy / Math.sqrt(sxx * syy) };
+	const r = Math.max(-1, Math.min(1, sxy / Math.sqrt(sxx * syy)));
+	return { slope, intercept: meanY - slope * meanX, r };
 }
 
 export function pearson(xs: number[], ys: number[]): number | null {

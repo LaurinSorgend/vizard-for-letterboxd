@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tmdb } from '$lib/testing/fixtures';
+import { offers, tmdb, watchlistFilm } from '$lib/testing/fixtures';
 import type { Provider, RegionOffers, TmdbMovie, WatchlistFilm } from '$lib/types';
 import type { Swatch } from '$lib/posters/colors';
 import {
@@ -15,20 +15,16 @@ const netflix: Provider = { id: 8, name: 'Netflix', logoPath: null };
 const mubi: Provider = { id: 11, name: 'MUBI', logoPath: null };
 const apple: Provider = { id: 2, name: 'Apple TV', logoPath: null };
 
-function offers(over: Partial<RegionOffers> = {}): RegionOffers {
-	return { link: null, flatrate: [], free: [], ads: [], rent: [], buy: [], ...over };
-}
-
 function entry(name: string, record: Partial<TmdbMovie> = {}, added = '2024-01-01'): WatchlistFilm {
 	const year = record.year ?? 2020;
 	const releaseDate = `${year}-06-01`;
-	return {
+	return watchlistFilm({
 		uri: `https://boxd.it/${name}`,
 		name,
 		year,
 		added,
 		tmdb: tmdb({ releaseDate, ...record })
-	};
+	});
 }
 
 const stalker = entry(
@@ -109,14 +105,14 @@ describe('sortWatchlist', () => {
 	});
 
 	it('puts films missing the value last either way', () => {
-		const unknown: WatchlistFilm = { uri: 'x', name: 'Aaa', year: null, added: null, tmdb: null };
+		const unknown = watchlistFilm({ name: 'Aaa', year: null, added: null, tmdb: null });
 		expect(names(sortWatchlist([unknown, ...all], 'runtime-asc')).at(-1)).toBe('Aaa');
 		expect(names(sortWatchlist([unknown, ...all], 'runtime-desc')).at(-1)).toBe('Aaa');
 	});
 
 	it('shuffles the whole list, the same way for the same seed and differently for another', () => {
 		const many = Array.from({ length: 20 }, (_, i) => entry(`Film ${i}`));
-		const order = (seed: number) => names(sortWatchlist(many, 'shuffle', seed));
+		const order = (seed: number) => names(sortWatchlist(many, 'shuffle', { seed }));
 		expect([...order(3)].sort()).toEqual([...names(many)].sort());
 		expect(order(3)).toEqual(order(3));
 		expect(order(4)).not.toEqual(order(3));
@@ -128,18 +124,13 @@ describe('sortWatchlist', () => {
 			Heat: { background: 0.2, hue: 220, light: 0.4 },
 			Stalker: { background: 0.2, hue: 30, light: 0.3 }
 		};
-		const sorted = sortWatchlist(all, 'colour', 0, (film) => swatches[film.name]);
+		const sorted = sortWatchlist(all, 'colour', { swatchOf: (film) => swatches[film.name] });
 		expect(names(sorted)).toEqual(['Stalker', 'Heat', 'Paddington']);
 	});
 
 	it('orders by taste score descending, then TMDB rating and title for unmatched films', () => {
-		const unmatched: WatchlistFilm = {
-			uri: 'https://boxd.it/Zed',
-			name: 'Zed',
-			year: null,
-			added: null,
-			tmdb: null
-		};
+		const unmatchedB = watchlistFilm({ name: 'Zed', year: null, added: null, tmdb: null });
+		const unmatchedA = watchlistFilm({ name: 'Ada', year: null, added: null, tmdb: null });
 		const highRated = entry('HighRated', { voteAverage: 8.4 });
 		const lowRated = entry('LowRated', { voteAverage: 6.1 });
 		const scores: Record<string, { score: number; reason: string }> = {
@@ -148,13 +139,11 @@ describe('sortWatchlist', () => {
 			HighRated: { score: 0, reason: '' }
 		};
 		const sorted = sortWatchlist(
-			[unmatched, lowRated, highRated, paddington, stalker],
+			[unmatchedB, lowRated, highRated, unmatchedA, paddington, stalker],
 			'taste',
-			0,
-			() => undefined,
-			(film) => scores[film.name] ?? null
+			{ tasteOf: (film) => scores[film.name] ?? null }
 		);
-		expect(names(sorted)).toEqual(['Stalker', 'Paddington', 'HighRated', 'LowRated', 'Zed']);
+		expect(names(sorted)).toEqual(['Stalker', 'Paddington', 'HighRated', 'LowRated', 'Ada', 'Zed']);
 	});
 });
 

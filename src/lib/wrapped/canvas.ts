@@ -1,5 +1,6 @@
 /** Low-level drawing helpers shared by the story card and the summary poster. */
 
+import { downloadBlob } from '$lib/download';
 import type { Accent } from './look';
 
 export interface Palette {
@@ -80,10 +81,7 @@ export function paletteFrom(element: Element): Palette {
 	};
 }
 
-/**
- * Reads the wrapped palette for a named stock without requiring an open deck dialog.
- * Mounts a hidden probe carrying `data-hue` long enough to resolve `wrapped.css` tokens.
- */
+/** Reads the wrapped palette for a named stock without requiring an open deck dialog. */
 export function paletteFor(hue: Accent = 'neutral'): Palette {
 	const probe = document.createElement('span');
 	probe.dataset.hue = hue;
@@ -132,6 +130,22 @@ export function grain(ctx: CanvasRenderingContext2D, width: number, height: numb
 	ctx.restore();
 }
 
+/** Shortens `text` with an ellipsis so `measure(result) <= maxWidth`, or `''` if even `…` cannot fit. */
+export function truncateText(
+	text: string,
+	maxWidth: number,
+	measure: (value: string) => number
+): string {
+	if (maxWidth <= 0) return '';
+	if (measure(text) <= maxWidth) return text;
+	if (measure('…') > maxWidth) return '';
+	let trimmed = text.trimEnd();
+	while (trimmed.length > 0 && measure(`${trimmed}…`) > maxWidth) {
+		trimmed = trimmed.slice(0, -1).trimEnd();
+	}
+	return `${trimmed}…`;
+}
+
 export function wrap(
 	ctx: CanvasRenderingContext2D,
 	text: string,
@@ -152,10 +166,11 @@ export function wrap(
 	}
 	if (lines.length < maxLines && line) lines.push(line);
 	if (lines.length === maxLines) {
-		let last = lines[maxLines - 1];
-		while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth)
-			last = last.slice(0, -1);
-		if (ctx.measureText(lines[maxLines - 1]).width > maxWidth) lines[maxLines - 1] = `${last}…`;
+		lines[maxLines - 1] = truncateText(
+			lines[maxLines - 1],
+			maxWidth,
+			(value) => ctx.measureText(value).width
+		);
 	}
 	return lines;
 }
@@ -233,11 +248,6 @@ export async function deliver(
 			if (cause instanceof DOMException && cause.name === 'AbortError') return 'cancelled';
 		}
 	}
-	const url = URL.createObjectURL(blob);
-	const anchor = document.createElement('a');
-	anchor.href = url;
-	anchor.download = filename;
-	anchor.click();
-	setTimeout(() => URL.revokeObjectURL(url), 1000);
+	downloadBlob(blob, filename);
 	return 'saved';
 }

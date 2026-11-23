@@ -1,17 +1,17 @@
 import {
-	offersKey,
+	tmdbRefKey,
 	type BatchAnswer,
 	type CollectionParts,
 	type EnrichRequestItem,
 	type FeedEntry,
 	type FilmReleases,
 	type OmdbRatings,
-	type ProviderRequestItem,
 	type Recommendation,
 	type RegionOffers,
 	type ReleaseKind,
 	type Seed,
 	type TmdbMovie,
+	type TmdbRef,
 	type UpcomingCandidate
 } from '$lib/types';
 import { batchFetcher, runRounds } from './batch';
@@ -55,13 +55,13 @@ export const enrichOmdb = batchFetcher<string, string, OmdbRatings>({
 	keyOf: (id) => id
 });
 
-/** Where each title can be watched in `region`, keyed by `offersKey`; null means offered nowhere. */
+/** Where each title can be watched in `region`, keyed by `tmdbRefKey`; null means offered nowhere. */
 export const providersFetcher = (region: string) =>
-	batchFetcher<ProviderRequestItem, string, RegionOffers>({
+	batchFetcher<TmdbRef, string, RegionOffers>({
 		url: '/api/providers',
 		label: 'Provider lookup',
 		body: (items) => ({ region, items }),
-		keyOf: offersKey
+		keyOf: tmdbRefKey
 	});
 
 /** Release dates of each movie in every country, keyed by TMDB id; null means TMDB has none. */
@@ -80,12 +80,12 @@ export const fetchRecords = batchFetcher<number, number, TmdbMovie>({
 	keyOf: (id) => id
 });
 
-/** Full TMDB movie or TV records, keyed by `offersKey`; null where TMDB has none. */
-export const fetchTypedRecords = batchFetcher<ProviderRequestItem, string, TmdbMovie>({
+/** Full TMDB movie or TV records, keyed by `tmdbRefKey`; null where TMDB has none. */
+export const fetchTypedRecords = batchFetcher<TmdbRef, string, TmdbMovie>({
 	url: '/api/records',
 	label: 'Record lookup',
 	body: (items) => ({ items }),
-	keyOf: offersKey
+	keyOf: tmdbRefKey
 });
 
 const collectionsFetcher = batchFetcher<number, number, CollectionParts>({

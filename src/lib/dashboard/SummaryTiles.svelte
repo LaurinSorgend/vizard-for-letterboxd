@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { effectiveCountries } from '$lib/film/countries';
 	import { count, stars } from '$lib/format';
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from './state.svelte';
 	import StatTiles from '$lib/viz/StatTiles.svelte';
 	import { likedCount } from '$lib/viz/stats';
 	import { avgRating, totalRuntimeMinutes } from '$lib/film/tally';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	const tiles = $derived.by(() => {
-		const films = library.filteredFilms;
+		const films = dashboard.films;
 		const hours = Math.round(totalRuntimeMinutes(films) / 60);
 		const countries = new Set(films.flatMap((f) => (f.tmdb ? effectiveCountries(f.tmdb) : [])));
 		return [

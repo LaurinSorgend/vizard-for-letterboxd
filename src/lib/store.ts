@@ -19,32 +19,22 @@ const DB_NAME = 'vizard-library';
 const DB_VERSION = 1;
 const STORE_NAME = 'snapshots';
 
-/** Where a library started: a full export, or only the RSS feed. */
 export type LibrarySource = 'export' | 'feed';
 
-/** The analysed result kept on the user's device so repeat visits skip re-uploading. */
 export interface Snapshot {
 	films: EnrichedFilm[];
 	watchlist: WatchlistFilm[];
-	/** Written by older builds; derived from `watchlist` now, so ignored on read and no longer saved. */
-	watchlistIds?: number[];
-	/** Parsed custom lists from `lists/*.csv`; omitted in older saved snapshots. */
+	/** Omitted in older saved snapshots before custom lists were parsed. */
 	lists?: CustomList[];
 	profile: Profile | null;
 	collections: CollectionParts[];
 	source: LibrarySource;
 }
 
-function idbFactory(): IDBFactory | null {
-	if (!browser || typeof indexedDB === 'undefined') return null;
-	return indexedDB;
-}
-
 function openDb(): Promise<IDBDatabase | null> {
-	const factory = idbFactory();
-	if (!factory) return Promise.resolve(null);
+	if (typeof indexedDB === 'undefined') return Promise.resolve(null);
 	return new Promise((resolve, reject) => {
-		const request = factory.open(DB_NAME, DB_VERSION);
+		const request = indexedDB.open(DB_NAME, DB_VERSION);
 		request.onupgradeneeded = () => {
 			const db = request.result;
 			if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
@@ -75,11 +65,10 @@ function clearLegacyStorage(): void {
 		const stale = Object.keys(localStorage).filter((key) => key.startsWith(PREFIX));
 		for (const key of stale) localStorage.removeItem(key);
 	} catch {
-		// Ignore when localStorage is unavailable or blocked.
+		return;
 	}
 }
 
-/** Reads a snapshot left by an older localStorage-backed build, if one exists. */
 function readLegacySnapshot(): Snapshot | null {
 	try {
 		const raw = localStorage.getItem(KEY);
@@ -89,7 +78,6 @@ function readLegacySnapshot(): Snapshot | null {
 	}
 }
 
-/** Removes IndexedDB snapshots left by superseded schema generations. */
 async function sweepOldIdbGenerations(db: IDBDatabase): Promise<void> {
 	const tx = db.transaction(STORE_NAME, 'readwrite');
 	const store = tx.objectStore(STORE_NAME);
@@ -142,7 +130,6 @@ export async function loadSnapshot(): Promise<Snapshot | null> {
 	}
 }
 
-/** Persists the snapshot in IndexedDB; returns false if the browser refused storage. */
 export async function saveSnapshot(snapshot: Snapshot): Promise<boolean> {
 	if (!browser) return false;
 	let db: IDBDatabase | null = null;
@@ -159,7 +146,6 @@ export async function saveSnapshot(snapshot: Snapshot): Promise<boolean> {
 	}
 }
 
-/** Removes any remembered snapshot from both IndexedDB and legacy localStorage. */
 export async function clearSnapshot(): Promise<void> {
 	if (!browser) return;
 	clearLegacyStorage();
@@ -171,7 +157,7 @@ export async function clearSnapshot(): Promise<void> {
 		tx.objectStore(STORE_NAME).delete(KEY);
 		await finishTransaction(tx);
 	} catch {
-		// Ignore storage cleanup errors when IndexedDB is unavailable.
+		return;
 	} finally {
 		db?.close();
 	}

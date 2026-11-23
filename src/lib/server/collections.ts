@@ -54,7 +54,7 @@ const rawCache = jsonCache<number, CollectionParts | null>({
 });
 
 /** Drops older cached rows that lack `parts` so they refetch and upgrade transparently. */
-export function withPartsUpgrade(
+function withPartsUpgrade(
 	base: Cache<number, CollectionParts | null>
 ): Cache<number, CollectionParts | null> {
 	return {

@@ -1,13 +1,9 @@
 <script lang="ts">
-	import { webHref } from '$lib/film/links';
+	import { tmdbUrl } from '$lib/film/links';
 	import { noun } from '$lib/format';
 	import { getLibrary } from '$lib/library.svelte';
-	import {
-		formatTmdbOverride,
-		normalizeOverrideUri,
-		parseTmdbOverride,
-		tmdbOverrideUrl
-	} from '$lib/overrides';
+	import { formatTmdbOverride, getOverride, parseTmdbOverride } from '$lib/overrides';
+	import FilmLink from '$lib/viz/chart/FilmLink.svelte';
 
 	const library = getLibrary();
 	const unmatched = $derived(library.films.filter((f) => !f.tmdb));
@@ -15,7 +11,7 @@
 	const overriddenFilms = $derived.by(() =>
 		library.films
 			.map((film) => {
-				const override = library.overrides[normalizeOverrideUri(film.uri)];
+				const override = getOverride(library.overrides, film.uri);
 				return override ? { film, override } : null;
 			})
 			.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -26,8 +22,9 @@
 	let submittingUri = $state<string | null>(null);
 	let rowError = $state<string | null>(null);
 	let statusMessage = $state<string | null>(null);
+	let submitSeq = 0;
 
-	function openEditor(uri: string) {
+	function toggleEditor(uri: string) {
 		if (editingUri === uri) {
 			closeEditor();
 			return;
@@ -51,23 +48,36 @@
 			rowError = 'Enter a TMDB ID (e.g. 550) or URL (themoviedb.org/movie/… or /tv/…).';
 			return;
 		}
+		const seq = ++submitSeq;
 		submittingUri = uri;
 		rowError = null;
 		statusMessage = null;
-		const result = await library.setTmdbOverride(uri, target);
-		submittingUri = null;
-		if (!result.ok) {
-			rowError = result.error;
-			return;
+		try {
+			const result = await library.setTmdbOverride(uri, target);
+			if (seq !== submitSeq) return;
+			if (!result.ok) {
+				if (editingUri === uri) rowError = result.error;
+				return;
+			}
+			if (editingUri === uri) closeEditor();
+			statusMessage = `Matched to "${result.title}" (${formatTmdbOverride(target)}).`;
+		} catch (cause) {
+			if (seq === submitSeq && editingUri === uri) {
+				rowError = cause instanceof Error ? cause.message : 'Could not save override.';
+			}
+		} finally {
+			if (seq === submitSeq) submittingUri = null;
 		}
-		closeEditor();
-		statusMessage = `Matched to "${result.title}" (${formatTmdbOverride(target)}).`;
 	}
 
 	async function removeSavedOverride(uri: string, name: string) {
 		statusMessage = null;
-		await library.clearTmdbOverride(uri);
-		statusMessage = `Removed local TMDB override for "${name}".`;
+		try {
+			await library.clearTmdbOverride(uri);
+			statusMessage = `Removed local TMDB override for "${name}".`;
+		} catch (cause) {
+			statusMessage = cause instanceof Error ? cause.message : 'Could not remove override.';
+		}
 	}
 </script>
 
@@ -96,36 +106,26 @@
 						Open a title on Letterboxd to check its TMDB link, retry lookup, or set a TMDB ID
 						locally.
 					</p>
-					<button
-						type="button"
-						class="action"
-						onclick={() => library.retryLookup()}
-						disabled={library.phase === 'working'}
-					>
+					<button type="button" class="action" onclick={() => library.retryLookup()}>
 						Retry unmatched{#if unmatchedWatchlistCount > 0}{' '}(+{unmatchedWatchlistCount} watchlist){/if}
 					</button>
 				</div>
 
 				<ul class="film-rows">
 					{#each unmatched as film (film.uri)}
-						{@const href = webHref(film.uri)}
 						{@const isEditing = editingUri === film.uri}
 						{@const isBusy = submittingUri === film.uri}
 						<li class="film-row">
 							<div class="row-main">
 								<span class="title-wrap">
-									{#if href}
-										<a {href} target="_blank" rel="noopener">{film.name}</a>
-									{:else}
-										<span>{film.name}</span>
-									{/if}
+									<FilmLink {film} />
 									<span class="year" data-numeric>({film.year ?? 'unknown year'})</span>
 								</span>
 								<button
 									type="button"
 									class="row-btn"
 									aria-expanded={isEditing}
-									onclick={() => openEditor(film.uri)}
+									onclick={() => toggleEditor(film.uri)}
 								>
 									{isEditing ? 'Close' : 'Set TMDB ID'}
 								</button>
@@ -163,17 +163,12 @@
 					<h3>Manual TMDB matches (saved on this device)</h3>
 					<ul class="override-rows">
 						{#each overriddenFilms as { film, override } (film.uri)}
-							{@const href = webHref(film.uri)}
 							<li>
 								<span class="title-wrap">
-									{#if href}
-										<a {href} target="_blank" rel="noopener">{film.name}</a>
-									{:else}
-										<span>{film.name}</span>
-									{/if}
+									<FilmLink {film} />
 									<span class="arrow" aria-hidden="true">→</span>
 									<a
-										href={tmdbOverrideUrl(override)}
+										href={tmdbUrl(override)}
 										target="_blank"
 										rel="noopener"
 										class="tmdb-ref"
@@ -303,11 +298,11 @@
 		gap: 4px 6px;
 		min-width: 0;
 	}
-	.title-wrap a {
+	.title-wrap :global(a) {
 		color: var(--accent);
 		text-decoration: none;
 	}
-	.title-wrap a:hover {
+	.title-wrap :global(a:hover) {
 		text-decoration: underline;
 	}
 	.year,

@@ -1,9 +1,20 @@
-import { filmKey } from '$lib/ingest/film';
-import { getOrCreate } from '$lib/maps';
-import { isTmdbId, type EnrichedFilm, type TmdbMovie, type WatchlistFilm } from '$lib/types';
+import { canonicalFilmKey, type FilmIdentity } from '$lib/film/identity';
+import { releaseYear } from '$lib/film/release';
+import { byGenre, byPerson } from '$lib/film/tally';
+import { pearson } from '$lib/math';
+import { FAVOURITE_RATING, isFavourite } from '$lib/recommend/taste';
+import type { EnrichedFilm, TmdbMovie, WatchlistFilm } from '$lib/types';
+
+/** Rating gap threshold for a film to count as close agreement. */
+const CLOSE_AGREEMENT_DIFF = 0.5;
+/** Minimum rating gap for a film to appear in the disagreements list. */
+export const MIN_DISAGREEMENT_DIFF = 1;
+/** Mean absolute star gap that maps to 0% rating compatibility. */
+const COMPATIBILITY_ZERO_DIFF = 2.5;
+/** Minimum shared rated films before computing Pearson correlation. */
+const MIN_PEARSON_OVERLAP = 3;
 
 export interface LibraryInput {
-	name: string;
 	films: EnrichedFilm[];
 	watchlist: WatchlistFilm[];
 }
@@ -24,12 +35,10 @@ export interface OverlapStats {
 }
 
 export interface RatingDisagreement {
-	filmA: EnrichedFilm;
-	filmB: EnrichedFilm;
+	key: string;
 	title: string;
 	year: number | null;
 	uri: string;
-	posterPath: string | null;
 	ratingA: number;
 	ratingB: number;
 	diff: number;
@@ -37,12 +46,10 @@ export interface RatingDisagreement {
 }
 
 export interface MutualFavourite {
-	filmA: EnrichedFilm;
-	filmB: EnrichedFilm;
+	key: string;
 	title: string;
 	year: number | null;
 	uri: string;
-	posterPath: string | null;
 	ratingA: number | null;
 	ratingB: number | null;
 	likedA: boolean;
@@ -50,13 +57,13 @@ export interface MutualFavourite {
 }
 
 export interface SharedDirector {
+	key: string;
 	name: string;
-	tmdbId: number | null;
+	href: string | null;
 	countA: number;
 	countB: number;
 	avgA: number | null;
 	avgB: number | null;
-	combined: number;
 }
 
 export interface SharedGenre {
@@ -67,7 +74,6 @@ export interface SharedGenre {
 	shareB: number;
 	avgA: number | null;
 	avgB: number | null;
-	combined: number;
 }
 
 export interface WatchTogetherItem {
@@ -76,8 +82,7 @@ export interface WatchTogetherItem {
 	year: number | null;
 	uri: string;
 	posterPath: string | null;
-	filmA: WatchlistFilm;
-	filmB: WatchlistFilm;
+	details: string;
 }
 
 export interface WatchRecommendation {
@@ -86,8 +91,6 @@ export interface WatchRecommendation {
 	year: number | null;
 	uri: string;
 	posterPath: string | null;
-	watchlistFilm: WatchlistFilm;
-	recommenderFilm: EnrichedFilm;
 	rating: number | null;
 	liked: boolean;
 }
@@ -107,29 +110,10 @@ export interface ComparisonResult {
 	watchTogether: WatchTogether;
 }
 
-interface FilmIdentity {
-	name: string;
-	year: number | null;
-	tmdb: TmdbMovie | null;
-}
-
-interface TallyBucket {
-	name: string;
-	tmdbId: number | null;
-	count: number;
-	ratingSum: number;
-	ratedCount: number;
-}
-
-/**
- * Canonical cross-library identity for a watched or watchlist film.
- * Uses TMDB mediaType + id when matched to TMDB, falling back to normalized name + year.
- */
-export function canonicalFilmKey(film: FilmIdentity): string {
-	if (film.tmdb && isTmdbId(film.tmdb.tmdbId)) {
-		return `${film.tmdb.mediaType}:${film.tmdb.tmdbId}`;
-	}
-	return filmKey(film.name.trim().toLowerCase(), film.year);
+interface PairedFilm {
+	key: string;
+	filmA: EnrichedFilm;
+	filmB: EnrichedFilm;
 }
 
 function indexByKey<T extends FilmIdentity>(items: T[]): Map<string, T> {
@@ -141,43 +125,22 @@ function indexByKey<T extends FilmIdentity>(items: T[]): Map<string, T> {
 	return map;
 }
 
-function isLoved(film: EnrichedFilm): boolean {
-	return (film.rating !== null && film.rating >= 4) || film.liked;
-}
-
-function pearsonCorrelation(xs: number[], ys: number[]): number | null {
-	const n = xs.length;
-	if (n < 3) return null;
-	const meanX = xs.reduce((sum, v) => sum + v, 0) / n;
-	const meanY = ys.reduce((sum, v) => sum + v, 0) / n;
-	let num = 0;
-	let denX = 0;
-	let denY = 0;
-	for (let i = 0; i < n; i++) {
-		const dx = xs[i] - meanX;
-		const dy = ys[i] - meanY;
-		num += dx * dy;
-		denX += dx * dx;
-		denY += dy * dy;
-	}
-	if (denX === 0 || denY === 0) return null;
-	const r = num / Math.sqrt(denX * denY);
-	return Math.max(-1, Math.min(1, r));
+function pairDetails(year: number | null, tmdb: TmdbMovie | null): string {
+	return [year, tmdb?.runtime ? `${tmdb.runtime} min` : null, tmdb?.genres.slice(0, 3).join(', ')]
+		.filter(Boolean)
+		.join(' · ');
 }
 
 function computeOverlap(
 	yourCount: number,
 	friendCount: number,
-	shared: [EnrichedFilm, EnrichedFilm][],
+	shared: PairedFilm[],
 	mutualFavouritesCount: number
 ): OverlapStats {
 	const sharedCount = shared.length;
 	const unionCount = yourCount + friendCount - sharedCount;
 	const jaccardPct = unionCount === 0 ? 0 : (sharedCount / unionCount) * 100;
-	const rated = shared.filter(
-		(pair): pair is [EnrichedFilm & { rating: number }, EnrichedFilm & { rating: number }] =>
-			pair[0].rating !== null && pair[1].rating !== null
-	);
+	const rated = shared.filter(({ filmA, filmB }) => filmA.rating !== null && filmB.rating !== null);
 	const bothRatedCount = rated.length;
 	if (bothRatedCount === 0) {
 		return {
@@ -195,25 +158,25 @@ function computeOverlap(
 			mutualFavouritesCount
 		};
 	}
+
 	let absSum = 0;
 	let signedSum = 0;
 	let closeCount = 0;
 	const xs: number[] = [];
 	const ys: number[] = [];
-	for (const [a, b] of rated) {
-		const diff = a.rating - b.rating;
+	for (const { filmA, filmB } of rated) {
+		const a = filmA.rating as number;
+		const b = filmB.rating as number;
+		const diff = a - b;
 		const abs = Math.abs(diff);
 		absSum += abs;
 		signedSum += diff;
-		if (abs <= 0.5) closeCount += 1;
-		xs.push(a.rating);
-		ys.push(b.rating);
+		if (abs <= CLOSE_AGREEMENT_DIFF) closeCount += 1;
+		xs.push(a);
+		ys.push(b);
 	}
+
 	const meanAbsDiff = absSum / bothRatedCount;
-	const signedBias = signedSum / bothRatedCount;
-	const closeAgreementPct = (closeCount / bothRatedCount) * 100;
-	const pearson = pearsonCorrelation(xs, ys);
-	const compatibilityPct = Math.round(Math.max(0, 1 - meanAbsDiff / 2.5) * 100);
 	return {
 		yourCount,
 		friendCount,
@@ -222,28 +185,26 @@ function computeOverlap(
 		jaccardPct,
 		bothRatedCount,
 		meanAbsDiff,
-		signedBias,
-		closeAgreementPct,
-		pearson,
-		compatibilityPct,
+		signedBias: signedSum / bothRatedCount,
+		closeAgreementPct: (closeCount / bothRatedCount) * 100,
+		pearson: bothRatedCount >= MIN_PEARSON_OVERLAP ? pearson(xs, ys) : null,
+		compatibilityPct: Math.round(Math.max(0, 1 - meanAbsDiff / COMPATIBILITY_ZERO_DIFF) * 100),
 		mutualFavouritesCount
 	};
 }
 
-function buildDisagreements(shared: [EnrichedFilm, EnrichedFilm][]): RatingDisagreement[] {
+function buildDisagreements(shared: PairedFilm[]): RatingDisagreement[] {
 	const rows: RatingDisagreement[] = [];
-	for (const [filmA, filmB] of shared) {
+	for (const { key, filmA, filmB } of shared) {
 		if (filmA.rating === null || filmB.rating === null) continue;
 		const diff = filmA.rating - filmB.rating;
 		const absDiff = Math.abs(diff);
-		if (absDiff < 1) continue;
+		if (absDiff < MIN_DISAGREEMENT_DIFF) continue;
 		rows.push({
-			filmA,
-			filmB,
+			key,
 			title: filmA.name,
 			year: filmA.year ?? filmB.year,
 			uri: filmA.uri || filmB.uri,
-			posterPath: filmA.tmdb?.posterPath ?? filmB.tmdb?.posterPath ?? null,
 			ratingA: filmA.rating,
 			ratingB: filmB.rating,
 			diff,
@@ -258,17 +219,15 @@ function buildDisagreements(shared: [EnrichedFilm, EnrichedFilm][]): RatingDisag
 	);
 }
 
-function buildMutualFavourites(shared: [EnrichedFilm, EnrichedFilm][]): MutualFavourite[] {
+function buildMutualFavourites(shared: PairedFilm[]): MutualFavourite[] {
 	const rows: MutualFavourite[] = [];
-	for (const [filmA, filmB] of shared) {
-		if (!isLoved(filmA) || !isLoved(filmB)) continue;
+	for (const { key, filmA, filmB } of shared) {
+		if (!isFavourite(filmA) || !isFavourite(filmB)) continue;
 		rows.push({
-			filmA,
-			filmB,
+			key,
 			title: filmA.name,
 			year: filmA.year ?? filmB.year,
 			uri: filmA.uri || filmB.uri,
-			posterPath: filmA.tmdb?.posterPath ?? filmB.tmdb?.posterPath ?? null,
 			ratingA: filmA.rating,
 			ratingB: filmB.rating,
 			likedA: filmA.liked,
@@ -276,102 +235,44 @@ function buildMutualFavourites(shared: [EnrichedFilm, EnrichedFilm][]): MutualFa
 		});
 	}
 	return rows.sort((a, b) => {
-		const scoreDiff = (b.ratingA ?? 4) + (b.ratingB ?? 4) - ((a.ratingA ?? 4) + (a.ratingB ?? 4));
-		if (scoreDiff !== 0) return scoreDiff;
-		const heartDiff = Number(b.likedA && b.likedB) - Number(a.likedA && a.likedB);
-		if (heartDiff !== 0) return heartDiff;
-		return a.title.localeCompare(b.title);
+		const scoreA = (a.ratingA ?? FAVOURITE_RATING) + (a.ratingB ?? FAVOURITE_RATING);
+		const scoreB = (b.ratingA ?? FAVOURITE_RATING) + (b.ratingB ?? FAVOURITE_RATING);
+		return (
+			scoreB - scoreA ||
+			Number(b.likedA && b.likedB) - Number(a.likedA && a.likedB) ||
+			a.title.localeCompare(b.title)
+		);
 	});
 }
 
-function tallyDirectors(films: Iterable<EnrichedFilm>): Map<string, TallyBucket> {
-	const map = new Map<string, TallyBucket>();
-	for (const film of films) {
-		const seen = new Set<string>();
-		for (const person of film.tmdb?.directors ?? []) {
-			const key =
-				person.tmdbId !== null ? `id:${person.tmdbId}` : `name:${person.name.trim().toLowerCase()}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			const bucket = getOrCreate(map, key, () => ({
-				name: person.name,
-				tmdbId: person.tmdbId,
-				count: 0,
-				ratingSum: 0,
-				ratedCount: 0
-			}));
-			bucket.count += 1;
-			if (film.rating !== null) {
-				bucket.ratingSum += film.rating;
-				bucket.ratedCount += 1;
-			}
-		}
-	}
-	return map;
-}
-
-function averageOf(bucket: TallyBucket): number | null {
-	return bucket.ratedCount > 0 ? bucket.ratingSum / bucket.ratedCount : null;
-}
-
-function buildSharedDirectors(
-	filmsA: Iterable<EnrichedFilm>,
-	filmsB: Iterable<EnrichedFilm>
-): SharedDirector[] {
-	const mapA = tallyDirectors(filmsA);
-	const mapB = tallyDirectors(filmsB);
+function buildSharedDirectors(filmsA: EnrichedFilm[], filmsB: EnrichedFilm[]): SharedDirector[] {
+	const mapA = new Map(byPerson(filmsA, 'directors').map((d) => [d.key, d]));
+	const mapB = new Map(byPerson(filmsB, 'directors').map((d) => [d.key, d]));
 	const shared: SharedDirector[] = [];
 	for (const [key, a] of mapA) {
 		const b = mapB.get(key);
 		if (!b) continue;
 		shared.push({
-			name: a.name,
-			tmdbId: a.tmdbId ?? b.tmdbId,
+			key,
+			name: a.label,
+			href: a.href ?? b.href ?? null,
 			countA: a.count,
 			countB: b.count,
-			avgA: averageOf(a),
-			avgB: averageOf(b),
-			combined: a.count + b.count
+			avgA: a.avg,
+			avgB: b.avg
 		});
 	}
 	return shared.sort(
 		(a, b) =>
 			Math.min(b.countA, b.countB) - Math.min(a.countA, a.countB) ||
-			b.combined - a.combined ||
+			b.countA + b.countB - (a.countA + a.countB) ||
 			a.name.localeCompare(b.name)
 	);
 }
 
-function tallyGenres(films: Iterable<EnrichedFilm>): Map<string, TallyBucket> {
-	const map = new Map<string, TallyBucket>();
-	for (const film of films) {
-		const seen = new Set<string>();
-		for (const genre of film.tmdb?.genres ?? []) {
-			if (seen.has(genre)) continue;
-			seen.add(genre);
-			const bucket = getOrCreate(map, genre, () => ({
-				name: genre,
-				tmdbId: null,
-				count: 0,
-				ratingSum: 0,
-				ratedCount: 0
-			}));
-			bucket.count += 1;
-			if (film.rating !== null) {
-				bucket.ratingSum += film.rating;
-				bucket.ratedCount += 1;
-			}
-		}
-	}
-	return map;
-}
-
-function buildSharedGenres(
-	filmsA: Map<string, EnrichedFilm>,
-	filmsB: Map<string, EnrichedFilm>
-): SharedGenre[] {
-	const mapA = tallyGenres(filmsA.values());
-	const mapB = tallyGenres(filmsB.values());
+function buildSharedGenres(filmsA: EnrichedFilm[], filmsB: EnrichedFilm[]): SharedGenre[] {
+	const mapA = new Map(byGenre(filmsA).map((g) => [g.key, g]));
+	const mapB = new Map(byGenre(filmsB).map((g) => [g.key, g]));
 	const shared: SharedGenre[] = [];
 	for (const [name, a] of mapA) {
 		const b = mapB.get(name);
@@ -380,14 +281,15 @@ function buildSharedGenres(
 			name,
 			countA: a.count,
 			countB: b.count,
-			shareA: filmsA.size > 0 ? a.count / filmsA.size : 0,
-			shareB: filmsB.size > 0 ? b.count / filmsB.size : 0,
-			avgA: averageOf(a),
-			avgB: averageOf(b),
-			combined: a.count + b.count
+			shareA: filmsA.length > 0 ? a.count / filmsA.length : 0,
+			shareB: filmsB.length > 0 ? b.count / filmsB.length : 0,
+			avgA: a.avg,
+			avgB: b.avg
 		});
 	}
-	return shared.sort((a, b) => b.combined - a.combined || a.name.localeCompare(b.name));
+	return shared.sort(
+		(a, b) => b.countA + b.countB - (a.countA + a.countB) || a.name.localeCompare(b.name)
+	);
 }
 
 function buildRecommendations(
@@ -399,26 +301,23 @@ function buildRecommendations(
 	for (const [key, watchlistFilm] of targetWatchlist) {
 		if (targetWatched.has(key)) continue;
 		const recommenderFilm = recommenderWatched.get(key);
-		if (!recommenderFilm || !isLoved(recommenderFilm)) continue;
+		if (!recommenderFilm || !isFavourite(recommenderFilm)) continue;
 		rows.push({
 			key,
 			name: watchlistFilm.name,
 			year: watchlistFilm.year ?? recommenderFilm.year,
-			uri: watchlistFilm.uri || recommenderFilm.uri || key,
+			uri: watchlistFilm.uri || recommenderFilm.uri,
 			posterPath: watchlistFilm.tmdb?.posterPath ?? recommenderFilm.tmdb?.posterPath ?? null,
-			watchlistFilm,
-			recommenderFilm,
 			rating: recommenderFilm.rating,
 			liked: recommenderFilm.liked
 		});
 	}
-	return rows.sort((a, b) => {
-		const scoreDiff = (b.rating ?? 4) - (a.rating ?? 4);
-		if (scoreDiff !== 0) return scoreDiff;
-		const heartDiff = Number(b.liked) - Number(a.liked);
-		if (heartDiff !== 0) return heartDiff;
-		return a.name.localeCompare(b.name);
-	});
+	return rows.sort(
+		(a, b) =>
+			(b.rating ?? FAVOURITE_RATING) - (a.rating ?? FAVOURITE_RATING) ||
+			Number(b.liked) - Number(a.liked) ||
+			a.name.localeCompare(b.name)
+	);
 }
 
 function buildWatchTogether(
@@ -433,14 +332,15 @@ function buildWatchTogether(
 	for (const [key, filmA] of wlA) {
 		const filmB = wlB.get(key);
 		if (!filmB || watchedA.has(key) || watchedB.has(key)) continue;
+		const tmdb = filmA.tmdb ?? filmB.tmdb;
+		const year = releaseYear(filmA) ?? releaseYear(filmB);
 		mutualWatchlist.push({
 			key,
 			name: filmA.name,
-			year: filmA.year ?? filmB.year,
-			uri: filmA.uri || filmB.uri || key,
-			posterPath: filmA.tmdb?.posterPath ?? filmB.tmdb?.posterPath ?? null,
-			filmA,
-			filmB
+			year,
+			uri: filmA.uri || filmB.uri,
+			posterPath: tmdb?.posterPath ?? null,
+			details: pairDetails(year, tmdb)
 		});
 	}
 	mutualWatchlist.sort((a, b) => a.name.localeCompare(b.name));
@@ -451,22 +351,23 @@ function buildWatchTogether(
 	};
 }
 
-/** Compares two enriched Letterboxd libraries across overlap, ratings, taste, and watchlists. */
 export function compareLibraries(you: LibraryInput, friend: LibraryInput): ComparisonResult {
 	const watchedA = indexByKey(you.films);
 	const watchedB = indexByKey(friend.films);
-	const shared: [EnrichedFilm, EnrichedFilm][] = [];
+	const shared: PairedFilm[] = [];
 	for (const [key, filmA] of watchedA) {
 		const filmB = watchedB.get(key);
-		if (filmB) shared.push([filmA, filmB]);
+		if (filmB) shared.push({ key, filmA, filmB });
 	}
+	const dedupedA = [...watchedA.values()];
+	const dedupedB = [...watchedB.values()];
 	const mutualFavourites = buildMutualFavourites(shared);
 	return {
-		overlap: computeOverlap(watchedA.size, watchedB.size, shared, mutualFavourites.length),
+		overlap: computeOverlap(dedupedA.length, dedupedB.length, shared, mutualFavourites.length),
 		disagreements: buildDisagreements(shared),
 		mutualFavourites,
-		sharedDirectors: buildSharedDirectors(watchedA.values(), watchedB.values()),
-		sharedGenres: buildSharedGenres(watchedA, watchedB),
+		sharedDirectors: buildSharedDirectors(dedupedA, dedupedB),
+		sharedGenres: buildSharedGenres(dedupedA, dedupedB),
 		watchTogether: buildWatchTogether(watchedA, watchedB, you.watchlist, friend.watchlist)
 	};
 }

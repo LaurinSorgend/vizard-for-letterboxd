@@ -2,6 +2,7 @@
 	import { imageUrl, webHref } from '$lib/film/links';
 	import { starCaption } from '$lib/format';
 	import PosterGrid from '$lib/posters/PosterGrid.svelte';
+	import { FAVOURITE_RATING } from '$lib/recommend/taste';
 	import MetricToggle from '$lib/viz/MetricToggle.svelte';
 	import type { WatchRecommendation, WatchTogether, WatchTogetherItem } from './compare';
 
@@ -23,18 +24,17 @@
 
 	type Tab = 'mutual' | 'friend' | 'you';
 
-	let tab = $state<Tab>('mutual');
+	let chosenTab = $state<Tab | null>(null);
 	let pickedKey = $state<string | null>(null);
 
-	$effect(() => {
-		if (
-			friendFromFeed &&
+	const tab = $derived<Tab>(
+		chosenTab ??
+			(friendFromFeed &&
 			watchTogether.mutualWatchlist.length === 0 &&
 			watchTogether.friendRecommends.length > 0
-		) {
-			tab = 'friend';
-		}
-	});
+				? 'friend'
+				: 'mutual')
+	);
 
 	const picked = $derived(
 		watchTogether.mutualWatchlist.find((item) => item.key === pickedKey) ?? null
@@ -47,9 +47,8 @@
 		pickedKey = pool[Math.floor(Math.random() * pool.length)]?.key ?? null;
 	}
 
-	function posterSrc(item: { posterPath: string | null }): string | null {
-		return imageUrl(item.posterPath, 'w185');
-	}
+	const posterSrc = (item: { posterPath: string | null }): string | null =>
+		imageUrl(item.posterPath, 'w185');
 
 	function mutualLabel(item: WatchTogetherItem): string {
 		return `${item.name}${item.year ? ` (${item.year})` : ''}`;
@@ -61,18 +60,37 @@
 		const liked = item.liked ? `, ${who} liked` : '';
 		return `${item.name}${year}${rating}${liked}`;
 	}
-
-	function pickDetails(item: WatchTogetherItem): string {
-		const tmdb = item.filmA.tmdb ?? item.filmB.tmdb;
-		return [
-			item.year,
-			tmdb?.runtime ? `${tmdb.runtime} min` : null,
-			tmdb?.genres.slice(0, 3).join(', ')
-		]
-			.filter(Boolean)
-			.join(' · ');
-	}
 </script>
+
+{#snippet recommendationTab(
+	items: WatchRecommendation[],
+	targetName: string,
+	recommenderName: string,
+	emptyMessage: string
+)}
+	<p class="desc">
+		Films on {targetName}'s watchlist that {recommenderName} already watched and loved ({FAVOURITE_RATING}★+
+		or hearted).
+	</p>
+	{#if items.length === 0}
+		<p class="empty">{emptyMessage}</p>
+	{:else}
+		<PosterGrid
+			films={items}
+			page={PAGE}
+			key={(item) => item.key}
+			poster={posterSrc}
+			label={(item) => recLabel(item, recommenderName)}
+		>
+			{#snippet overlay(item)}
+				<span class="badge" data-numeric aria-hidden="true">
+					{#if item.rating !== null}{starCaption(item.rating)}{/if}
+					{#if item.liked}<span class="heart">♥</span>{/if}
+				</span>
+			{/snippet}
+		</PosterGrid>
+	{/if}
+{/snippet}
 
 <section class="compare-block" aria-labelledby="compare-watch-heading">
 	<div class="block-head">
@@ -88,7 +106,7 @@
 				},
 				{ value: 'you', label: `${yourName} recommends (${watchTogether.youRecommend.length})` }
 			]}
-			bind:value={tab}
+			bind:value={() => tab, (next) => (chosenTab = next)}
 		/>
 	</div>
 
@@ -115,7 +133,7 @@
 			</div>
 
 			{#if picked}
-				{@const poster = imageUrl(picked.posterPath, 'w154')}
+				{@const poster = posterSrc(picked)}
 				{@const href = webHref(picked.uri)}
 				<div class="pick-card" aria-live="polite">
 					{#if poster}
@@ -123,8 +141,8 @@
 					{/if}
 					<div>
 						<p class="pick-title">{picked.name}</p>
-						{#if pickDetails(picked)}
-							<p class="pick-meta">{pickDetails(picked)}</p>
+						{#if picked.details}
+							<p class="pick-meta">{picked.details}</p>
 						{/if}
 						{#if href}
 							<p class="pick-link">
@@ -138,85 +156,33 @@
 			<PosterGrid
 				films={watchTogether.mutualWatchlist}
 				page={PAGE}
+				key={(item) => item.key}
 				poster={posterSrc}
 				label={mutualLabel}
 			/>
 		{/if}
 	{:else if tab === 'friend'}
-		<p class="desc">
-			Films on {yourName}'s watchlist that {friendName} already watched and loved (4★+ or hearted).
-		</p>
-		{#if watchTogether.friendRecommends.length === 0}
-			<p class="empty">
-				{#if yourWatchlistCount === 0}
-					Your loaded library has no watchlist to match against {friendName}'s favourites.
-				{:else}
-					None of {friendName}'s favourites sit on your watchlist yet.
-				{/if}
-			</p>
-		{:else}
-			<PosterGrid
-				films={watchTogether.friendRecommends}
-				page={PAGE}
-				poster={posterSrc}
-				label={(item) => recLabel(item, friendName)}
-			>
-				{#snippet overlay(item)}
-					<span class="badge" data-numeric aria-hidden="true">
-						{#if item.rating !== null}{starCaption(item.rating)}{/if}
-						{#if item.liked}<span class="heart">♥</span>{/if}
-					</span>
-				{/snippet}
-			</PosterGrid>
-		{/if}
+		{@render recommendationTab(
+			watchTogether.friendRecommends,
+			yourName,
+			friendName,
+			yourWatchlistCount === 0
+				? `Your loaded library has no watchlist to match against ${friendName}'s favourites.`
+				: `None of ${friendName}'s favourites sit on your watchlist yet.`
+		)}
 	{:else}
-		<p class="desc">
-			Films on {friendName}'s watchlist that {yourName} already watched and loved (4★+ or hearted).
-		</p>
-		{#if watchTogether.youRecommend.length === 0}
-			<p class="empty">
-				{#if friendFromFeed}
-					{friendName} was loaded from an RSS feed, which does not include their watchlist.
-				{:else}
-					None of your favourites sit on {friendName}'s watchlist yet.
-				{/if}
-			</p>
-		{:else}
-			<PosterGrid
-				films={watchTogether.youRecommend}
-				page={PAGE}
-				poster={posterSrc}
-				label={(item) => recLabel(item, yourName)}
-			>
-				{#snippet overlay(item)}
-					<span class="badge" data-numeric aria-hidden="true">
-						{#if item.rating !== null}{starCaption(item.rating)}{/if}
-						{#if item.liked}<span class="heart">♥</span>{/if}
-					</span>
-				{/snippet}
-			</PosterGrid>
-		{/if}
+		{@render recommendationTab(
+			watchTogether.youRecommend,
+			friendName,
+			yourName,
+			friendFromFeed
+				? `${friendName} was loaded from an RSS feed, which does not include their watchlist.`
+				: `None of your favourites sit on ${friendName}'s watchlist yet.`
+		)}
 	{/if}
 </section>
 
 <style>
-	.compare-block {
-		margin: 0 0 32px;
-		padding-top: 24px;
-		border-top: 1px solid var(--border);
-	}
-	.block-head {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 8px 16px;
-		margin-bottom: 8px;
-	}
-	h3 {
-		margin: 0;
-		color: var(--fg);
-	}
 	.desc {
 		margin: 0 0 16px;
 		color: var(--fg-secondary);
@@ -278,9 +244,5 @@
 	.heart {
 		margin-left: 3px;
 		color: var(--liked);
-	}
-	.empty {
-		margin: 0;
-		color: var(--fg-secondary);
 	}
 </style>

@@ -3,8 +3,8 @@
 	import { count, formatDateRange, plural, starCaption, stars } from '$lib/format';
 	import { billedIn, LABELS, ratingsAcross, TOP_FILMS } from './labels';
 	import Wrapped from './Wrapped.svelte';
-	import { deliver, paletteFor } from './canvas';
-	import { cardFilename, summaryCard } from './cards';
+	import { paletteFor } from './canvas';
+	import { cardFilename, exportCard, summaryCard } from './cards';
 	import './wrapped.css';
 	import { buildYear } from '$lib/year';
 	import { isRunning } from '$lib/year/library';
@@ -57,23 +57,14 @@
 		const targetYear = input.library.year;
 		saving = true;
 		posterStatus = null;
-		try {
-			const canvas = await summaryCard(input, paletteFor('neutral'));
-			const name = cardFilename(targetYear);
-			const outcome = await deliver(canvas, name);
-			if (year === targetYear && outcome === 'saved') {
-				posterStatus = { text: `Saved as ${name}.`, error: false };
-			}
-		} catch (cause) {
-			if (year === targetYear) {
-				posterStatus = {
-					text: cause instanceof Error ? cause.message : 'The picture could not be rendered.',
-					error: true
-				};
-			}
-		} finally {
-			saving = false;
+		const result = await exportCard(
+			() => summaryCard(input, paletteFor()),
+			cardFilename(targetYear)
+		);
+		if (year === targetYear && result.status) {
+			posterStatus = { text: result.status, error: result.error };
 		}
+		saving = false;
 	}
 
 	const recap = $derived.by(() => {
@@ -372,7 +363,7 @@
 	}
 	.also {
 		font-size: var(--text-xs);
-		color: var(--ctp-subtext0);
+		color: var(--fg-secondary);
 	}
 
 	.posters {

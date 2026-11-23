@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
-	import { formatShort, plural, stars } from '$lib/format';
+	import { formatShort, plural, starCaption, stars } from '$lib/format';
 	import Section from '../Section.svelte';
+	import { getDashboard } from '../state.svelte';
 	import FilmLink from '$lib/viz/chart/FilmLink.svelte';
 	import { pager } from '$lib/viz/pager.svelte';
 	import { filterReviews, reviewSummary, type ReviewSort } from '$lib/viz/personal';
@@ -12,24 +12,19 @@
 	const PREVIEW_CHARS = 320;
 	const PREVIEW_LINES = 4;
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let query = $state('');
 	let sort = $state<ReviewSort>('recent');
 
-	const summary = $derived(reviewSummary(library.filteredFilms));
+	const summary = $derived(reviewSummary(dashboard.films));
 	const filtered = $derived(filterReviews(summary.entries, query, sort));
 	const paging = pager(
 		() => filtered.length,
-		() => REVIEW_LIMIT
+		() => REVIEW_LIMIT,
+		() => `${query}\0${sort}`
 	);
 	const visible = $derived(filtered.slice(0, paging.shown));
-
-	$effect(() => {
-		void query;
-		void sort;
-		paging.reset();
-	});
 
 	function isLongReview(text: string): boolean {
 		return text.length > PREVIEW_CHARS || text.split('\n').length > PREVIEW_LINES;
@@ -44,10 +39,10 @@
 	}
 </script>
 
-{#if summary.count > 0}
+{#if summary.entries.length > 0}
 	<Section id="reviews" title="Your reviews" nav="Reviews">
 		<p class="chart-note">
-			{plural(summary.count, 'review')}, {plural(summary.totalWords, 'word')} total (avg {plural(
+			{plural(summary.entries.length, 'review')}, {plural(summary.totalWords, 'word')} total (avg {plural(
 				Math.round(summary.avgWords ?? 0),
 				'word'
 			)} each).{#if summary.reviewedAvgRating !== null && summary.unreviewedAvgRating !== null}{' '}Reviewed
@@ -73,7 +68,7 @@
 			{#if query.trim().length > 0}
 				<p class="summary" role="status">
 					Showing <span data-numeric>{filtered.length}</span> of
-					<span data-numeric>{summary.count}</span> reviews
+					<span data-numeric>{summary.entries.length}</span> reviews
 				</p>
 			{/if}
 		</div>
@@ -93,7 +88,7 @@
 							</div>
 							<div class="facts">
 								{#if entry.film.rating !== null}
-									<span class="rating" data-numeric>★ {entry.film.rating}</span>
+									<span class="rating" data-numeric>{starCaption(entry.film.rating)}</span>
 								{/if}
 								{#if entry.date !== null}
 									<span class="meta" data-numeric>{formatShort(entry.date)}</span>

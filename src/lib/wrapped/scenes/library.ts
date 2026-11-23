@@ -124,8 +124,8 @@ export function breadthScene({ library }: DeckInput): Scene | null {
 export function likedScene({ library }: DeckInput): Scene | null {
 	const liked = likedNotLoved(library);
 	if (!liked || liked.hearts < MIN_LIKED || liked.rating >= LIKED_CEILING) return null;
-	// The lowest-rated heart is one of those under LOVED whenever it sits under the ceiling.
-	const others = liked.heartsUnderLoved - (liked.rating < LOVED ? 1 : 0);
+	// The lowest-rated heart sits below LIKED_CEILING (< LOVED), so it is always counted in heartsUnderLoved.
+	const others = liked.heartsUnderLoved - 1;
 	const othersLine =
 		others > 0
 			? ` ${plural(others, 'other film')} got a heart without ${numberWord(LOVED)} stars.`
@@ -161,7 +161,7 @@ export function collectionScene({ library }: DeckInput): Scene | null {
 		label: 'The set you worked through',
 		value: worked.name,
 		valueKind: 'name',
-		note: `${covered[0].toUpperCase()}${covered.slice(1)}, between ${first} and ${last}.`,
+		note: `${capitalised(covered)}, between ${first} and ${last}.`,
 		stats: [
 			{ label: 'Films', value: worked.total ? `${seen} of ${worked.total}` : String(seen) },
 			{ label: 'First', value: first },

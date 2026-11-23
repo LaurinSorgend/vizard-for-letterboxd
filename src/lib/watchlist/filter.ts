@@ -1,14 +1,13 @@
 import { effectiveCountries } from '$lib/film/countries';
 import { languageName } from '$lib/film/language';
+import { releaseYear } from '$lib/film/release';
 import { getOrCreate } from '$lib/maps';
-import { hashString, seeded } from '$lib/random';
 import { compareSpectrum, type Swatch } from '$lib/posters/colors';
 import { posterUrl } from '$lib/posters/posters';
-import { releaseYear } from '$lib/film/release';
-import type { TasteMatch } from '$lib/releases/similarity';
+import { hashString, seeded } from '$lib/random';
+import type { TasteMatch } from '$lib/recommend/similarity';
 import type { OfferKind, Provider, RegionOffers, WatchlistFilm } from '$lib/types';
 
-/** What a film's offers in the chosen country must include to stay in view. */
 export type Availability = 'any' | 'stream' | 'free' | 'rent' | 'none';
 
 export const AVAILABILITY_OPTIONS: { value: Availability; label: string }[] = [
@@ -22,8 +21,7 @@ export const AVAILABILITY_OPTIONS: { value: Availability; label: string }[] = [
 export const SORT_OPTIONS = [
 	{ value: 'added-desc', label: 'Recently added' },
 	{ value: 'added-asc', label: 'Added longest ago' },
-	/** Offered once the viewer has rated or liked films to build a taste profile from. */
-	{ value: 'taste', label: 'Best match for your taste', needsTaste: true },
+	{ value: 'taste', label: 'Best match for your taste', requires: 'taste' },
 	{ value: 'release-desc', label: 'Newest release' },
 	{ value: 'release-asc', label: 'Oldest release' },
 	{ value: 'rating', label: 'TMDB rating' },
@@ -32,17 +30,20 @@ export const SORT_OPTIONS = [
 	{ value: 'runtime-desc', label: 'Longest' },
 	{ value: 'title', label: 'Title A–Z' },
 	{ value: 'shuffle', label: 'Shuffled' },
-	/** Offered once some poster colours have been read. */
-	{ value: 'colour', label: 'Colour spectrum', needsPalette: true }
+	{ value: 'colour', label: 'Colour spectrum', requires: 'palette' }
 ] as const;
 
 export type WatchSort = (typeof SORT_OPTIONS)[number]['value'];
 
-/** A film's poster swatch, or undefined while it has not been read. */
 export type SwatchOf = (film: WatchlistFilm) => Swatch | undefined;
 
-/** A film's similarity match against the viewer's favourites, or null when unscored. */
 export type TasteOf = (film: WatchlistFilm) => TasteMatch | null;
+
+export interface SortContext {
+	seed?: number;
+	swatchOf?: SwatchOf;
+	tasteOf?: TasteOf;
+}
 
 /** The poster the wall and the pick show, which is also the image the colour sort reads. */
 export const posterOf = (film: WatchlistFilm): string | null => posterUrl(film.tmdb, 'w185');
@@ -81,12 +82,13 @@ export const NO_FILTERS: WatchFilters = {
 export type OffersOf = (film: WatchlistFilm) => RegionOffers | null | undefined;
 
 const STREAM_KINDS: OfferKind[] = ['flatrate', 'free', 'ads'];
+const RENT_KINDS: OfferKind[] = ['rent', 'buy'];
 
 const KINDS: Record<Exclude<Availability, 'none'>, OfferKind[]> = {
 	any: ['flatrate', 'free', 'ads', 'rent', 'buy'],
 	stream: STREAM_KINDS,
 	free: ['free', 'ads'],
-	rent: ['rent', 'buy']
+	rent: RENT_KINDS
 };
 
 /** The services offering a film by any of `kinds`, deduplicated, in TMDB's display order. */
@@ -97,9 +99,11 @@ function providersOf(offers: RegionOffers | null | undefined, kinds: OfferKind[]
 	return [...seen.values()];
 }
 
-/** The services streaming a film by subscription or for free. */
 export const streamingOn = (offers: RegionOffers | null | undefined): Provider[] =>
 	providersOf(offers, STREAM_KINDS);
+
+export const hasRentOrBuy = (offers: RegionOffers | null | undefined): boolean =>
+	providersOf(offers, RENT_KINDS).length > 0;
 
 function offeredBy(offers: RegionOffers | null, kinds: OfferKind[], services: number[]): boolean {
 	const providers = providersOf(offers, kinds);
@@ -186,20 +190,20 @@ function addedKey(film: WatchlistFilm): number | null {
 const byVoteDesc = byNumber((f) => f.tmdb?.voteAverage, true);
 
 function compareTaste(a: WatchlistFilm, b: WatchlistFilm, tasteOf: TasteOf): number {
-	const scoreA = Math.max(0, tasteOf(a)?.score ?? 0);
-	const scoreB = Math.max(0, tasteOf(b)?.score ?? 0);
+	const scoreA = tasteOf(a)?.score ?? 0;
+	const scoreB = tasteOf(b)?.score ?? 0;
 	if (scoreA !== scoreB) return scoreB - scoreA;
 	return byVoteDesc(a, b);
 }
 
-function comparator(sort: WatchSort, seed: number, swatchOf: SwatchOf, tasteOf: TasteOf) {
+function comparator(sort: WatchSort, { seed = 0, swatchOf, tasteOf }: SortContext) {
 	switch (sort) {
 		case 'added-desc':
 			return byNumber(addedKey, true);
 		case 'added-asc':
 			return byNumber(addedKey, false);
 		case 'taste':
-			return (a: WatchlistFilm, b: WatchlistFilm) => compareTaste(a, b, tasteOf);
+			return (a: WatchlistFilm, b: WatchlistFilm) => compareTaste(a, b, tasteOf ?? (() => null));
 		case 'release-desc':
 			return byNumber(releaseKey, true);
 		case 'release-asc':
@@ -217,7 +221,7 @@ function comparator(sort: WatchSort, seed: number, swatchOf: SwatchOf, tasteOf: 
 		case 'shuffle':
 			return byNumber((f) => seeded(hashString(f.uri) + seed), false);
 		case 'colour':
-			return (a: WatchlistFilm, b: WatchlistFilm) => compareSpectrum(swatchOf(a), swatchOf(b));
+			return (a: WatchlistFilm, b: WatchlistFilm) => compareSpectrum(swatchOf?.(a), swatchOf?.(b));
 	}
 }
 
@@ -225,11 +229,9 @@ function comparator(sort: WatchSort, seed: number, swatchOf: SwatchOf, tasteOf: 
 export function sortWatchlist(
 	films: WatchlistFilm[],
 	sort: WatchSort,
-	seed = 0,
-	swatchOf: SwatchOf = () => undefined,
-	tasteOf: TasteOf = () => null
+	context: SortContext = {}
 ): WatchlistFilm[] {
-	const compare = comparator(sort, seed, swatchOf, tasteOf);
+	const compare = comparator(sort, context);
 	return [...films].sort((a, b) => compare(a, b) || a.name.localeCompare(b.name));
 }
 

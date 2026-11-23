@@ -1,20 +1,18 @@
 <script lang="ts">
+	import { collectionShare } from '$lib/film/tally';
 	import { getLibrary } from '$lib/library.svelte';
-	import Section from '../Section.svelte';
 	import FranchiseBars from '$lib/viz/FranchiseBars.svelte';
 	import MetricToggle from '$lib/viz/MetricToggle.svelte';
-	import {
-		completedFranchiseCount,
-		franchiseProgress,
-		type FranchiseSort
-	} from '$lib/viz/franchises';
-	import { collectionShare } from '$lib/film/tally';
+	import { franchiseProgress, sortFranchises, type FranchiseSort } from '$lib/viz/franchises';
+	import Section from '../Section.svelte';
+	import { getDashboard } from '../state.svelte';
 
 	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let sort: FranchiseSort = $state('count');
 
-	const base = $derived(franchiseProgress(library.filteredFilms, library.collections, 'count'));
+	const base = $derived(franchiseProgress(dashboard.films, library.collections));
 	const hasTotals = $derived(base.some((f) => f.total !== null));
 	const hasRatings = $derived(base.some((f) => f.avg !== null));
 	const sortOptions = $derived([
@@ -25,13 +23,9 @@
 	const activeSort = $derived<FranchiseSort>(
 		sortOptions.some((option) => option.value === sort) ? sort : 'count'
 	);
-	const franchises = $derived(
-		activeSort === 'count'
-			? base
-			: franchiseProgress(library.filteredFilms, library.collections, activeSort)
-	);
-	const share = $derived(collectionShare(library.filteredFilms));
-	const completed = $derived(completedFranchiseCount(franchises));
+	const franchises = $derived(activeSort === 'count' ? base : sortFranchises(base, activeSort));
+	const share = $derived(collectionShare(dashboard.films));
+	const completed = $derived(base.filter((f) => f.completed).length);
 </script>
 
 {#if franchises.length > 0}

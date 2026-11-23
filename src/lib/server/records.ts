@@ -2,10 +2,11 @@ import { DAY_MS } from '$lib/math';
 import {
 	isTmdbId,
 	RECORD_SCHEMA,
+	tmdbRefKey,
 	type Collection,
 	type Person,
-	type ProviderRequestItem,
-	type TmdbMovie
+	type TmdbMovie,
+	type TmdbRef
 } from '$lib/types';
 import type { BatchLookup } from './batch';
 import type { FetchBudget } from './budget';
@@ -110,10 +111,6 @@ export async function fetchRecord(
 	};
 }
 
-/** TMDB numbers films and series separately, so a record's key carries its media type. */
-export const recordKey = (record: Pick<TmdbMovie, 'mediaType' | 'tmdbId'>): string =>
-	`${record.mediaType}:${record.tmdbId}`;
-
 const recordCache = (ttlMs?: number) =>
 	jsonCache<string, TmdbMovie>({
 		table: 'tmdb_records',
@@ -126,7 +123,7 @@ const recordCache = (ttlMs?: number) =>
 export const records = recordCache();
 
 const movieLookup = (cache: Cache<string, TmdbMovie>): BatchLookup<number, string, TmdbMovie> => ({
-	keyOf: (id) => (isTmdbId(id) ? recordKey({ mediaType: 'movie', tmdbId: id }) : null),
+	keyOf: (id) => (isTmdbId(id) ? tmdbRefKey({ mediaType: 'movie', tmdbId: id }) : null),
 	cache,
 	fetchOne: (budget, id) => fetchRecord(budget, 'movie', id),
 	label: 'tmdb record'
@@ -137,14 +134,13 @@ export const movieRecords = movieLookup(records);
 
 /** Credits and dates of unreleased films still change, so /api/records refetches weekly. */
 const FRESH_RECORD_MS = 7 * DAY_MS;
+const freshCache = recordCache(FRESH_RECORD_MS);
 
-/** Full records of TMDB movies by id, refetched once a week old. */
-export const freshMovieRecords = movieLookup(recordCache(FRESH_RECORD_MS));
+export const freshMovieRecords = movieLookup(freshCache);
 
-/** Full records of TMDB movies or series by typed id, refetched once a week old. */
-export const freshTypedRecords: BatchLookup<ProviderRequestItem, string, TmdbMovie> = {
-	keyOf: (item) => (isTmdbId(item.tmdbId) ? recordKey(item) : null),
-	cache: recordCache(FRESH_RECORD_MS),
+export const freshTypedRecords: BatchLookup<TmdbRef, string, TmdbMovie> = {
+	keyOf: (item) => (isTmdbId(item.tmdbId) ? tmdbRefKey(item) : null),
+	cache: freshCache,
 	fetchOne: (budget, item) => fetchRecord(budget, item.mediaType, item.tmdbId),
 	label: 'tmdb record'
 };

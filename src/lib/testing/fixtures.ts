@@ -1,4 +1,12 @@
-import type { DiaryEntry, EnrichedFilm, Film, OmdbRatings, TmdbMovie } from '$lib/types';
+import type {
+	DiaryEntry,
+	EnrichedFilm,
+	Film,
+	OmdbRatings,
+	RegionOffers,
+	TmdbMovie,
+	WatchlistFilm
+} from '$lib/types';
 
 /** Test-only builders: no non-test module imports `$lib/testing` (`boundary.test.ts` checks). */
 let counter = 0;
@@ -30,6 +38,22 @@ export function tmdb(over: Partial<TmdbMovie> = {}): TmdbMovie {
 
 export function omdb(over: Partial<OmdbRatings> = {}): OmdbRatings {
 	return { imdbRating: null, imdbVotes: null, rottenTomatoes: null, metascore: null, ...over };
+}
+
+export function offers(over: Partial<RegionOffers> = {}): RegionOffers {
+	return { link: null, flatrate: [], free: [], ads: [], rent: [], buy: [], ...over };
+}
+
+export function watchlistFilm(over: Partial<WatchlistFilm> = {}): WatchlistFilm {
+	counter += 1;
+	return {
+		uri: `https://boxd.it/wl-${counter}`,
+		name: `Watchlist ${counter}`,
+		year: 2020,
+		added: '2025-01-01',
+		tmdb: null,
+		...over
+	};
 }
 
 /** Diary dates and their per-entry ratings, built together so the two never drift apart. */

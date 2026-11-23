@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import MetacriticDisagreement from '$lib/viz/MetacriticDisagreement.svelte';
 	import RatingContrarian from '$lib/viz/RatingContrarian.svelte';
 	import RatingCorrelation from '$lib/viz/RatingCorrelation.svelte';
 	import RatingRadar from '$lib/viz/RatingRadar.svelte';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
-	const films = $derived(library.filteredFilms);
+	const films = $derived(dashboard.films);
 	const hasOmdb = $derived(films.some((f) => f.omdb));
 </script>
 

@@ -7,15 +7,17 @@ import {
 } from '$lib/api/endpoints';
 import { parseExport } from '$lib/ingest/parse';
 import { feedHasGap, mergeFeed } from '$lib/ingest/rss';
-import { normalizeOverrideUri, type TmdbOverride } from '$lib/overrides';
+import { getOverride, type OverrideMap } from '$lib/overrides';
 import {
-	offersKey,
+	tmdbRefKey,
 	type CollectionParts,
 	type EnrichedFilm,
 	type FeedEntry,
 	type Film,
 	type LetterboxdData,
 	type OmdbRatings,
+	type TmdbMovie,
+	type TmdbRef,
 	type WatchlistEntry,
 	type WatchlistFilm
 } from '$lib/types';
@@ -60,7 +62,7 @@ export async function loadFeed(username: string): Promise<LetterboxdData> {
 }
 
 async function ratingsFor(
-	films: { tmdb: EnrichedFilm['tmdb'] }[],
+	films: { tmdb: TmdbMovie | null }[],
 	report: (progress: Progress) => void,
 	signal?: AbortSignal
 ): Promise<Map<string, OmdbRatings | null>> {
@@ -83,7 +85,7 @@ export async function enrichLibrary(
 	tick();
 	const [watched, enrichedWatchlist] = await Promise.all([
 		enrichFilms(films, (n) => ((done.films = n), tick()), signal),
-		enrichWatchlist(watchlist, (n) => ((done.watchlist = n), tick()), signal)
+		enrichFilms(watchlist, (n) => ((done.watchlist = n), tick()), signal)
 	]);
 	const omdb = await ratingsFor(watched, report, signal);
 	return {
@@ -95,36 +97,65 @@ export async function enrichLibrary(
 	};
 }
 
-/** TMDB records for the watchlist, keeping full cast and keywords now that snapshots live in IndexedDB. */
-function enrichWatchlist(
-	watchlist: WatchlistEntry[],
-	onProgress: (done: number) => void,
-	signal?: AbortSignal
-): Promise<WatchlistFilm[]> {
-	return enrichFilms(watchlist, onProgress, signal);
+/** Fetches one user-supplied TMDB record and its OMDb ratings (OMDb errors degrade to null). */
+export async function resolveTmdbOverride(
+	target: TmdbRef
+): Promise<
+	{ ok: true; record: TmdbMovie; omdb: OmdbRatings | null } | { ok: false; error: string }
+> {
+	let record: TmdbMovie | null = null;
+	try {
+		const fetched = await fetchTypedRecords([target]);
+		record = fetched.get(tmdbRefKey(target)) ?? null;
+	} catch (cause) {
+		return {
+			ok: false,
+			error: cause instanceof Error ? cause.message : 'Could not reach TMDB.'
+		};
+	}
+	if (!record) {
+		const kind = target.mediaType === 'tv' ? 'series' : 'movie';
+		return { ok: false, error: `No TMDB ${kind} found for ID ${target.tmdbId}.` };
+	}
+	const omdbMap = record.imdbId
+		? await enrichOmdb([record.imdbId]).catch(() => new Map<string, OmdbRatings | null>())
+		: new Map<string, OmdbRatings | null>();
+	return {
+		ok: true,
+		record,
+		omdb: record.imdbId ? (omdbMap.get(record.imdbId) ?? null) : null
+	};
 }
 
-/** Applies user-saved local TMDB ID overrides to matching films, fetching records and OMDb ratings. */
+/** Applies saved local TMDB overrides to matching watched films and watchlist entries. */
 export async function applyTmdbOverrides(
 	films: EnrichedFilm[],
-	overrides: Record<string, TmdbOverride>,
+	watchlist: WatchlistFilm[],
+	overrides: OverrideMap,
 	signal?: AbortSignal
-): Promise<EnrichedFilm[]> {
-	const entries = films
-		.map((film, index) => ({
-			index,
-			target: overrides[normalizeOverrideUri(film.uri)]
-		}))
-		.filter((entry): entry is { index: number; target: TmdbOverride } => Boolean(entry.target));
-	if (entries.length === 0) return films;
+): Promise<{ films: EnrichedFilm[]; watchlist: WatchlistFilm[] }> {
+	const filmTargets = films.flatMap((film, index) => {
+		const target = getOverride(overrides, film.uri);
+		return target ? [{ index, target }] : [];
+	});
+	const watchTargets = watchlist.flatMap((item, index) => {
+		const target = getOverride(overrides, item.uri);
+		return target ? [{ index, target }] : [];
+	});
+	const allTargets = [...filmTargets, ...watchTargets];
+	if (allTargets.length === 0) return { films, watchlist };
 
-	const uniqueTargets = [...new Map(entries.map((e) => [offersKey(e.target), e.target])).values()];
+	const uniqueTargets = [
+		...new Map(allTargets.map((e) => [tmdbRefKey(e.target), e.target])).values()
+	];
 	const fetched = await fetchTypedRecords(uniqueTargets, undefined, signal).catch(
-		() => new Map<string, EnrichedFilm['tmdb']>()
+		() => new Map<string, TmdbMovie | null>()
 	);
 	const imdbIds = [
 		...new Set(
-			[...fetched.values()].map((record) => record?.imdbId).filter((id): id is string => !!id)
+			filmTargets
+				.map(({ target }) => fetched.get(tmdbRefKey(target))?.imdbId)
+				.filter((id): id is string => !!id)
 		)
 	];
 	const omdb =
@@ -134,25 +165,32 @@ export async function applyTmdbOverrides(
 				)
 			: new Map<string, OmdbRatings | null>();
 
-	const next = [...films];
-	for (const { index, target } of entries) {
-		const record = fetched.get(offersKey(target));
+	const nextFilms = [...films];
+	for (const { index, target } of filmTargets) {
+		const record = fetched.get(tmdbRefKey(target));
 		if (!record) continue;
-		const film = next[index];
-		next[index] = {
-			...film,
+		nextFilms[index] = {
+			...nextFilms[index],
 			tmdb: record,
-			omdb: record.imdbId ? (omdb.get(record.imdbId) ?? film.omdb) : null
+			omdb: record.imdbId ? (omdb.get(record.imdbId) ?? null) : null
 		};
 	}
-	return next;
+
+	const nextWatchlist = [...watchlist];
+	for (const { index, target } of watchTargets) {
+		const record = fetched.get(tmdbRefKey(target));
+		if (!record) continue;
+		nextWatchlist[index] = { ...nextWatchlist[index], tmdb: record };
+	}
+
+	return { films: nextFilms, watchlist: nextWatchlist };
 }
 
-/** Franchise sizes and film stubs for every collection in the library that `known` does not already cover with `parts`. */
+/** Franchise sizes and film stubs for every collection in the library not already carrying `parts`. */
 export async function collectionsFor(
 	films: EnrichedFilm[],
 	known: CollectionParts[] = []
-): Promise<CollectionParts[]> {
+): Promise<{ collections: CollectionParts[]; updated: boolean }> {
 	const byId = new Map<number, CollectionParts>();
 	for (const collection of known) byId.set(collection.id, collection);
 
@@ -163,21 +201,22 @@ export async function collectionsFor(
 				.filter((id): id is number => id != null && !Array.isArray(byId.get(id)?.parts))
 		)
 	];
-	if (ids.length > 0) {
-		for (const collection of await fetchCollections(ids)) {
-			byId.set(collection.id, collection);
-		}
+	if (ids.length === 0) return { collections: [...byId.values()], updated: false };
+	for (const collection of await fetchCollections(ids)) {
+		byId.set(collection.id, collection);
 	}
-	return [...byId.values()];
+	return { collections: [...byId.values()], updated: true };
 }
 
 /** Merges a feed into an analysed library, looking up only the films the feed introduced. */
 export async function refreshFromFeed(
 	library: EnrichedFilm[],
-	feed: FeedEntry[]
+	feed: FeedEntry[],
+	overrides: OverrideMap = {}
 ): Promise<{ films: EnrichedFilm[]; addedEntries: number; gap: boolean }> {
 	const gap = feedHasGap(library, feed);
 	const merged = mergeFeed(library, feed);
 	const { films: added } = await enrichLibrary(merged.newFilms, [], () => {});
-	return { films: [...merged.library, ...added], addedEntries: merged.addedEntries, gap };
+	const { films: resolved } = await applyTmdbOverrides(added, [], overrides);
+	return { films: [...merged.library, ...resolved], addedEntries: merged.addedEntries, gap };
 }

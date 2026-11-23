@@ -17,7 +17,6 @@
 		/** Picked services, shown first on each poster. */
 		services: number[];
 		showLogos: boolean;
-		/** Taste match lookup when sorted by taste, appended to poster labels and tooltips. */
 		tasteOf?: TasteOf;
 	} = $props();
 

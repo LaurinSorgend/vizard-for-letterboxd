@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { film, tmdb } from '$lib/testing/fixtures';
+import { film } from '$lib/testing/fixtures';
 import type { CustomList, CustomListItem } from '$lib/types';
-import { buildListStats, listSummary } from './lists';
+import { buildListStats, listSummary, sortListStats } from './lists';
 
 function item(over: Partial<CustomListItem> & Pick<CustomListItem, 'name'>): CustomListItem {
 	return {
@@ -26,30 +26,24 @@ function customList(
 }
 
 describe('buildListStats', () => {
-	it('matches items by URI or filmKey and computes totals, pct, avgRating, liked, runtime, and missing', () => {
+	it('matches items by normalized URI or filmKey and computes totals, ratio, completed, avgRating, and missing', () => {
 		const stalker = film({
 			uri: 'https://boxd.it/stalker',
 			name: 'Stalker',
 			year: 1979,
-			rating: 5,
-			liked: true,
-			tmdb: tmdb({ runtime: 162 })
+			rating: 5
 		});
 		const solaris = film({
 			uri: 'https://boxd.it/solaris',
 			name: 'Solaris',
 			year: 1972,
-			rating: 4,
-			liked: false,
-			tmdb: tmdb({ runtime: 167 })
+			rating: 4
 		});
 		const mirror = film({
 			uri: 'https://boxd.it/mirror-feed',
 			name: 'Mirror',
 			year: 1975,
-			rating: null,
-			liked: true,
-			tmdb: tmdb({ runtime: 107 })
+			rating: null
 		});
 
 		const list = customList({
@@ -60,7 +54,7 @@ describe('buildListStats', () => {
 					position: 1,
 					name: 'Stalker (Renamed)',
 					year: 1979,
-					uri: 'https://boxd.it/stalker'
+					uri: 'HTTPS://Boxd.it/stalker/'
 				}),
 				item({ position: 2, name: 'Solaris', year: 1972, uri: 'https://boxd.it/solaris' }),
 				item({ position: 3, name: 'Mirror', year: 1975, uri: 'https://boxd.it/different-uri' }),
@@ -69,12 +63,15 @@ describe('buildListStats', () => {
 		});
 
 		const [stats] = buildListStats([list], [stalker, solaris, mirror]);
-		expect(stats.total).toBe(4);
-		expect(stats.watched).toBe(3);
-		expect(stats.pct).toBe(75);
-		expect(stats.avgRating).toBe(4.5);
-		expect(stats.liked).toBe(2);
-		expect(stats.totalMinutes).toBe(162 + 167 + 107);
+		expect(stats).toMatchObject({
+			total: 4,
+			watched: 3,
+			ratio: 0.75,
+			pct: 75,
+			completed: false,
+			avgRating: 4.5,
+			ratedCount: 2
+		});
 		expect(stats.missing).toEqual([
 			item({ position: 4, name: 'Nostalghia', year: 1983, uri: 'https://boxd.it/nostalghia' })
 		]);
@@ -85,9 +82,7 @@ describe('buildListStats', () => {
 			uri: 'https://boxd.it/dune',
 			name: 'Dune',
 			year: 2021,
-			rating: 4.5,
-			liked: true,
-			tmdb: tmdb({ runtime: 155 })
+			rating: 4.5
 		});
 
 		const list = customList({
@@ -97,17 +92,20 @@ describe('buildListStats', () => {
 				item({ position: 1, name: 'Dune', year: 2021, uri: 'https://boxd.it/dune' }),
 				item({ position: 2, name: 'Dune', year: 2021, uri: '' }),
 				item({ position: 3, name: 'Arrival', year: 2016, uri: 'https://boxd.it/arrival' }),
-				item({ position: 4, name: 'Arrival', year: 2016, uri: 'https://boxd.it/arrival' })
+				item({ position: 4, name: 'Arrival', year: 2016, uri: 'HTTPS://BOXD.IT/arrival/' })
 			]
 		});
 
 		const [stats] = buildListStats([list], [dune]);
-		expect(stats.total).toBe(2);
-		expect(stats.watched).toBe(1);
-		expect(stats.pct).toBe(50);
-		expect(stats.avgRating).toBe(4.5);
-		expect(stats.liked).toBe(1);
-		expect(stats.totalMinutes).toBe(155);
+		expect(stats).toMatchObject({
+			total: 2,
+			watched: 1,
+			ratio: 0.5,
+			pct: 50,
+			completed: false,
+			avgRating: 4.5,
+			ratedCount: 1
+		});
 		expect(stats.missing).toHaveLength(1);
 		expect(stats.missing[0].name).toBe('Arrival');
 	});
@@ -126,36 +124,51 @@ describe('buildListStats', () => {
 		expect(results[0]).toMatchObject({
 			total: 1,
 			watched: 1,
+			ratio: 1,
 			pct: 100,
+			completed: true,
 			avgRating: null,
-			totalMinutes: 0,
+			ratedCount: 0,
 			missing: []
 		});
 		expect(results[1]).toMatchObject({
 			total: 0,
 			watched: 0,
+			ratio: null,
 			pct: 0,
+			completed: false,
 			avgRating: null,
+			ratedCount: 0,
 			missing: []
 		});
 	});
 
-	it('sorts by size, watched, completion, and rating with tie-breaking rules', () => {
+	it('sorts distinctly by size, watched, completion, and rating with tie-breaking rules', () => {
 		const f1 = film({ uri: 'u1', name: 'F1', year: 2001, rating: 5 });
 		const f2 = film({ uri: 'u2', name: 'F2', year: 2002, rating: 4 });
 		const f3 = film({ uri: 'u3', name: 'F3', year: 2003, rating: 3 });
 		const f4 = film({ uri: 'u4', name: 'F4', year: 2004, rating: null });
 		const films = [f1, f2, f3, f4];
 
-		const bigPartial = customList({
-			id: 'big',
-			name: 'Big Partial',
+		const bigUnwatched = customList({
+			id: 'big-unwatched',
+			name: 'Big Unwatched',
+			items: [
+				item({ name: 'F3', year: 2003, uri: 'u3' }),
+				item({ name: 'M1', year: 2010, uri: 'm1' }),
+				item({ name: 'M2', year: 2011, uri: 'm2' }),
+				item({ name: 'M3', year: 2012, uri: 'm3' }),
+				item({ name: 'M4', year: 2013, uri: 'm4' })
+			]
+		});
+		const mostlySeen = customList({
+			id: 'mostly-seen',
+			name: 'Mostly Seen',
 			items: [
 				item({ name: 'F1', year: 2001, uri: 'u1' }),
 				item({ name: 'F2', year: 2002, uri: 'u2' }),
 				item({ name: 'F3', year: 2003, uri: 'u3' }),
-				item({ name: 'M1', year: 2010, uri: 'm1' }),
-				item({ name: 'M2', year: 2011, uri: 'm2' })
+				item({ name: 'M5', year: 2014, uri: 'm5' })
 			]
 		});
 		const singleFive = customList({
@@ -176,55 +189,54 @@ describe('buildListStats', () => {
 			name: 'Unrated Full',
 			items: [item({ name: 'F4', year: 2004, uri: 'u4' })]
 		});
-		const zeroWatched = customList({
-			id: 'zero',
-			name: 'Zero Watched',
-			items: [item({ name: 'M3', year: 2012, uri: 'm3' })]
-		});
 		const empty = customList({ id: 'empty', name: 'A Empty', items: [] });
 
-		const lists = [empty, zeroWatched, unratedFull, singleFive, twoHigh, bigPartial];
+		const stats = buildListStats(
+			[empty, unratedFull, singleFive, twoHigh, mostlySeen, bigUnwatched],
+			films,
+			'size'
+		);
 
-		expect(buildListStats(lists, films, 'size').map((r) => r.list.id)).toEqual([
-			'big',
+		expect(stats.map((r) => r.list.id)).toEqual([
+			'big-unwatched',
+			'mostly-seen',
 			'two-high',
 			'single-five',
 			'unrated-full',
-			'zero',
 			'empty'
 		]);
 
-		expect(buildListStats(lists, films, 'watched').map((r) => r.list.id)).toEqual([
-			'big',
+		expect(sortListStats(stats, 'watched').map((r) => r.list.id)).toEqual([
+			'mostly-seen',
 			'two-high',
+			'big-unwatched',
 			'single-five',
 			'unrated-full',
-			'zero',
 			'empty'
 		]);
 
-		expect(buildListStats(lists, films, 'completion').map((r) => r.list.id)).toEqual([
+		expect(sortListStats(stats, 'completion').map((r) => r.list.id)).toEqual([
 			'two-high',
 			'single-five',
 			'unrated-full',
-			'big',
-			'zero',
+			'mostly-seen',
+			'big-unwatched',
 			'empty'
 		]);
 
-		expect(buildListStats(lists, films, 'rating').map((r) => r.list.id)).toEqual([
+		expect(sortListStats(stats, 'rating').map((r) => r.list.id)).toEqual([
 			'two-high',
-			'big',
+			'mostly-seen',
 			'single-five',
+			'big-unwatched',
 			'unrated-full',
-			'empty',
-			'zero'
+			'empty'
 		]);
 	});
 });
 
 describe('listSummary', () => {
-	it('aggregates list count, total items, deduplicated unique films, and completed lists', () => {
+	it('aggregates list count, deduplicated unique films across normalized URIs, and completed lists', () => {
 		const f1 = film({ uri: 'https://boxd.it/1', name: 'Stalker', year: 1979 });
 		const f2 = film({ uri: 'https://boxd.it/2', name: 'Solaris', year: 1972 });
 
@@ -241,7 +253,7 @@ describe('listSummary', () => {
 				id: 'partial',
 				name: 'Partial',
 				items: [
-					item({ name: 'Stalker', year: 1979, uri: 'https://boxd.it/1' }),
+					item({ name: 'Stalker', year: 1979, uri: 'HTTPS://Boxd.it/1/' }),
 					item({ name: 'Mirror', year: 1975, uri: 'https://boxd.it/3' })
 				]
 			}),
@@ -251,13 +263,11 @@ describe('listSummary', () => {
 		const stats = buildListStats(lists, [f1, f2]);
 		expect(listSummary(stats)).toEqual({
 			listCount: 3,
-			totalItems: 4,
 			uniqueFilms: 3,
 			completedLists: 1
 		});
 		expect(listSummary([])).toEqual({
 			listCount: 0,
-			totalItems: 0,
 			uniqueFilms: 0,
 			completedLists: 0
 		});

@@ -1,10 +1,16 @@
 import { DAY_MS } from '$lib/math';
-import { isTmdbId, type BatchAnswer, type EnrichRequestItem, type TmdbMovie } from '$lib/types';
+import {
+	isTmdbId,
+	tmdbRefKey,
+	type BatchAnswer,
+	type EnrichRequestItem,
+	type TmdbMovie
+} from '$lib/types';
 import { resolveBatch, type BatchLookup, type RequestContext } from './batch';
 import { RetryLater, type FetchBudget } from './budget';
 import { hitMissCache, type Cache } from './cache';
 import { exactTitleMatches, firstNearYear, withinYear } from './match';
-import { fetchRecord, recordKey, records } from './records';
+import { fetchRecord, records } from './records';
 import { tmdbGet, tmdbYear } from './tmdb';
 import { lookupSeriesOnTvdb } from './tvdb';
 
@@ -157,11 +163,11 @@ function enrichLookup(
 	const cache: Cache<string, TmdbMovie | null> = {
 		async getMany(db, keys) {
 			const matched = keys.flatMap((key) => known.get(key) ?? []);
-			const stored = await records.getMany(db, matched.map(recordKey));
+			const stored = await records.getMany(db, matched.map(tmdbRefKey));
 			const answers = new Map<string, TmdbMovie | null>();
 			for (const key of keys) {
 				const match = known.get(key);
-				const record = match && stored.get(recordKey(match));
+				const record = match && stored.get(tmdbRefKey(match));
 				if (match === null || record) answers.set(key, record ?? null);
 			}
 			return answers;
@@ -176,7 +182,7 @@ function enrichLookup(
 			);
 			await records.putMany(
 				db,
-				entries.flatMap(([, record]) => (record ? [[recordKey(record), record]] : []))
+				entries.flatMap(([, record]) => (record ? [[tmdbRefKey(record), record]] : []))
 			);
 		}
 	};

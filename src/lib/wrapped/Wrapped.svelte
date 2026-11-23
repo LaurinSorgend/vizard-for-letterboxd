@@ -3,8 +3,8 @@
 	import { fade } from 'svelte/transition';
 	import Frame from './Frame.svelte';
 	import { assemble, buildDeck } from './deck';
-	import { deliver, paletteFrom } from './canvas';
-	import { cardFilename, storyCard, summaryCard } from './cards';
+	import { paletteFrom } from './canvas';
+	import { cardFilename, exportCard, storyCard, summaryCard } from './cards';
 	import { posterRain } from './rain';
 	import { gateStyle, TRAY_TURN_MS } from './look';
 	import './wrapped.css';
@@ -69,20 +69,13 @@
 		if (!dialog || busy) return;
 		busy = true;
 		message = null;
-		try {
-			const palette = paletteFrom(dialog);
-			const canvas =
-				kind === 'poster'
-					? await summaryCard(data, palette)
-					: await storyCard(scene, data, palette);
-			const name = cardFilename(year, kind === 'scene' ? scene.id : undefined);
-			const outcome = await deliver(canvas, name);
-			if (outcome === 'saved') message = `Saved as ${name}.`;
-		} catch (cause) {
-			message = cause instanceof Error ? cause.message : 'The picture could not be rendered.';
-		} finally {
-			busy = false;
-		}
+		const palette = paletteFrom(dialog);
+		const result = await exportCard(
+			() => (kind === 'poster' ? summaryCard(data, palette) : storyCard(scene, data, palette)),
+			cardFilename(year, kind === 'scene' ? scene.id : undefined)
+		);
+		message = result.status;
+		busy = false;
 	}
 
 	$effect(() => {

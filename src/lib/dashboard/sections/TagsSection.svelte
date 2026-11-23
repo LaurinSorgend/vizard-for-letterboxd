@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { byTag, cleanTags } from '$lib/film/tally';
 	import { plural } from '$lib/format';
 	import Section from '../Section.svelte';
-	import { byTag, taggedFilmCount } from '$lib/viz/personal';
+	import { getDashboard } from '../state.svelte';
 	import RankedBars from '$lib/viz/RankedBars.svelte';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
-	const tags = $derived(byTag(library.filteredFilms));
-	const tagged = $derived(taggedFilmCount(library.filteredFilms));
+	const tags = $derived(byTag(dashboard.films));
+	const tagged = $derived(dashboard.films.filter((film) => cleanTags(film.tags).length > 0).length);
 </script>
 
 {#if tags.length > 0}

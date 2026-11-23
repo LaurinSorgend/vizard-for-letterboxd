@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { dev } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import FileDrop from '$lib/FileDrop.svelte';
+	import LoadProgress from '$lib/LoadProgress.svelte';
 	import RememberToggle from '$lib/RememberToggle.svelte';
 	import ThemeSwitch from '$lib/ThemeSwitch.svelte';
 	import UsernameForm from '$lib/UsernameForm.svelte';
@@ -15,6 +16,7 @@
 	import SummaryTiles from '$lib/dashboard/SummaryTiles.svelte';
 	import Unmatched from '$lib/dashboard/Unmatched.svelte';
 	import { SectionRegistry, setSections } from '$lib/dashboard/registry.svelte';
+	import { DashboardState, setDashboard } from '$lib/dashboard/state.svelte';
 	import CriticsSection from '$lib/dashboard/sections/CriticsSection.svelte';
 	import FranchisesSection from '$lib/dashboard/sections/FranchisesSection.svelte';
 	import GenresSection from '$lib/dashboard/sections/GenresSection.svelte';
@@ -47,15 +49,20 @@
 	import WrappedEntry from '$lib/wrapped/WrappedEntry.svelte';
 
 	const library = setLibrary(new Library());
+	const dashboard = setDashboard(new DashboardState(library));
 	const friend = new FriendLibrary();
 	setSections(new SectionRegistry());
+
+	$effect(() => {
+		library.loadId;
+		untrack(() => dashboard.reset());
+	});
 
 	type View = 'stats' | 'watchlist' | 'releases' | 'compare';
 	const view: View = $derived.by(() => {
 		const v = page.url.searchParams.get('view');
 		return v === 'watchlist' || v === 'releases' || v === 'compare' ? v : 'stats';
 	});
-	const { stage, done, total } = $derived(library.progress);
 
 	function showView(next: View) {
 		const url = new URL(page.url);
@@ -125,22 +132,11 @@
 			onsubmit={(username) => library.loadUsername(username)}
 		/>
 	{:else if library.phase === 'working'}
-		<div class="progress" role="status">
-			{#if total === 0}
-				<p>
-					{library.loadingSource === 'feed' ? 'Reading your diary feed…' : 'Reading your export…'}
-				</p>
-			{:else if stage === 'ratings'}
-				<p>Looking up ratings… {done} / {total}</p>
-				<progress value={done} max={total} aria-label="Ratings lookup progress"></progress>
-			{:else}
-				<p>Looking up film data… {done} / {total}</p>
-				<progress value={done} max={total} aria-label="Film lookup progress"></progress>
-			{/if}
-			<button type="button" class="small-button cancel" onclick={() => library.cancel()}>
-				Cancel
-			</button>
-		</div>
+		<LoadProgress
+			progress={library.progress}
+			source={library.loadingSource}
+			oncancel={() => library.cancel()}
+		/>
 	{:else}
 		<WrappedEntry
 			films={library.films}
@@ -198,10 +194,10 @@
 			<Section id="compare" title="Compare with a friend">
 				<CompareView
 					you={{
-						name: library.displayName ?? 'You',
 						films: library.films,
 						watchlist: library.watchlist
 					}}
+					yourName={library.displayName ?? 'You'}
 					{friend}
 				/>
 			</Section>
@@ -220,16 +216,11 @@
 			</Section>
 		{:else}
 			<SectionNav />
-			<FilterBar
-				films={library.films}
-				filteredCount={library.filteredFilms.length}
-				lists={library.lists}
-				bind:filters={library.filters}
-			/>
-			{#if library.isFiltered && library.filteredFilms.length === 0}
+			<FilterBar />
+			{#if dashboard.isFiltered && dashboard.films.length === 0}
 				<div class="empty-filter form-controls" role="status">
 					<p>No films match the current filters.</p>
-					<button type="button" onclick={() => library.resetFilters()}>Reset filters</button>
+					<button type="button" onclick={() => dashboard.reset()}>Reset filters</button>
 				</div>
 			{:else}
 				<SummaryTiles />
@@ -248,12 +239,7 @@
 				<FranchisesSection />
 				<ThemesSection />
 				<TagsSection />
-				<ListsSection
-					lists={library.lists}
-					films={library.films}
-					activeListId={library.filters.listId}
-					onfilterlist={(id) => library.setListFilter(id)}
-				/>
+				<ListsSection />
 				<ObscuritySection />
 				<QuadrantsSection />
 				<PeopleSection />
@@ -263,8 +249,8 @@
 				<MilestonesSection />
 				<RecapSection />
 				<RecommendationsSection />
-				<Unmatched />
 			{/if}
+			<Unmatched />
 		{/if}
 	{/if}
 </main>
@@ -374,10 +360,6 @@
 		display: block;
 		margin-bottom: 16px;
 	}
-	.cancel {
-		display: block;
-		margin: 16px auto 0;
-	}
 	.library-actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -405,14 +387,6 @@
 	}
 	.lookup-failed p {
 		margin: 0;
-	}
-	.progress {
-		text-align: center;
-		padding: 48px 0;
-	}
-	progress {
-		width: min(400px, 100%);
-		accent-color: var(--accent);
 	}
 	footer {
 		max-width: var(--column);

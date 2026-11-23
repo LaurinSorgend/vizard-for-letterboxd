@@ -1,4 +1,5 @@
-<script lang="ts">
+<script lang="ts" generics="T extends BarDatum">
+	import type { Snippet } from 'svelte';
 	import { stars } from '$lib/format';
 	import FilmList from './FilmList.svelte';
 	import { selectByKey } from './selection.svelte';
@@ -9,8 +10,20 @@
 	let {
 		data,
 		limit = 12,
-		description
-	}: { data: BarDatum[]; limit?: number; description: string } = $props();
+		description,
+		imageLabel = 'portrait of',
+		rowSummary,
+		track,
+		details
+	}: {
+		data: T[];
+		limit?: number;
+		description: string;
+		imageLabel?: string;
+		rowSummary?: (d: T) => string;
+		track?: Snippet<[T, number]>;
+		details?: Snippet<[T]>;
+	} = $props();
 
 	let pinnedKey: string | null = $state(null);
 	const selection = selectByKey(
@@ -33,6 +46,11 @@
 	function togglePin(key: string) {
 		pinnedKey = pinnedKey === key ? null : key;
 	}
+
+	function summaryOf(d: T): string {
+		if (rowSummary) return rowSummary(d);
+		return `${d.label}: ${d.count}${d.avg !== null ? `, avg ${d.avg.toFixed(1)}` : ''}; click to list films`;
+	}
 </script>
 
 <svelte:window
@@ -43,6 +61,7 @@
 
 <div class="chart" class:with-images={hasImages} role="group" aria-label={description}>
 	{#each rows as d (d.key)}
+		{@const summary = summaryOf(d)}
 		{#if hasImages}
 			{#if d.imageLarge}
 				<button
@@ -50,7 +69,7 @@
 					class="pic"
 					class:pinned={pinnedKey === d.key}
 					aria-pressed={pinnedKey === d.key}
-					aria-label="Show portrait of {d.label}"
+					aria-label="Show {imageLabel} {d.label}"
 					onclick={() => togglePin(d.key)}
 				>
 					{#if d.image}
@@ -77,14 +96,17 @@
 			type="button"
 			class="track"
 			aria-pressed={selection.isSelected(d.key)}
-			title="{d.label}: {d.count}{d.avg !== null
-				? `, avg ${d.avg.toFixed(1)}`
-				: ''}; click to list films"
+			aria-label={rowSummary ? summary : undefined}
+			title={summary}
 			onclick={() => selection.toggle(d.key)}
 		>
-			<span class="bar" class:lead={d.count === lead} style="width: {(d.count / max) * 100}%"
-			></span>
-			<span class="val" data-numeric>{d.count}</span>
+			{#if track}
+				{@render track(d, max)}
+			{:else}
+				<span class="bar" class:lead={d.count === lead} style="width: {(d.count / max) * 100}%"
+				></span>
+				<span class="val" data-numeric>{d.count}</span>
+			{/if}
 		</button>
 		<span class="avg" data-numeric>{stars(d.avg)}</span>
 	{/each}
@@ -93,6 +115,7 @@
 {#if selection.selected}
 	{@const selected = selection.selected}
 	<FilmList title={selected.label} films={selected.films} />
+	{@render details?.(selected)}
 {/if}
 
 <style>
@@ -161,6 +184,8 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		width: 100%;
+		min-height: 24px;
 	}
 	button.track {
 		font: inherit;
@@ -179,7 +204,7 @@
 	.bar.lead {
 		background: var(--accent);
 	}
-	.track:hover .bar {
+	.track:hover :global(.bar) {
 		filter: brightness(1.15);
 	}
 	button.track[aria-pressed='true'] .bar {

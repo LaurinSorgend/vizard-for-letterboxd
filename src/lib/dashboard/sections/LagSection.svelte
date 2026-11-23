@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import { formatDays } from '$lib/format';
 	import RankedBars from '$lib/viz/RankedBars.svelte';
 	import { medianWatchLag, watchLag } from '$lib/viz/stats';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
-	const medianLag = $derived(medianWatchLag(library.filteredFilms));
+	const medianLag = $derived(medianWatchLag(dashboard.films));
 </script>
 
 <Section id="lag" title="From release to watch" nav="Release to watch">
@@ -17,7 +17,7 @@
 		</p>
 	{/if}
 	<RankedBars
-		data={watchLag(library.filteredFilms)}
+		data={watchLag(dashboard.films)}
 		description="Films and average rating per gap between release and first watch"
 	/>
 </Section>

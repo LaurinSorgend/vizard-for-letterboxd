@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import RecentWatches from '$lib/viz/RecentWatches.svelte';
 	import { recentWatches } from '$lib/viz/stats';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
-	const recent = $derived(recentWatches(library.filteredFilms));
+	const recent = $derived(recentWatches(dashboard.films));
 </script>
 
 {#if recent.length > 0}

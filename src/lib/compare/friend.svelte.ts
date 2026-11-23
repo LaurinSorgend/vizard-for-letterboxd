@@ -1,27 +1,42 @@
+import { LoadRunner, type LoadPhase } from '$lib/ingest/loader.svelte';
 import { enrichLibrary, loadExport, loadFeed, type Progress } from '$lib/ingest/pipeline';
+import { FEED_FILM_LIMIT } from '$lib/ingest/rss';
+import type { LibrarySource } from '$lib/store';
 import type { EnrichedFilm, LetterboxdData, Profile, WatchlistFilm } from '$lib/types';
 
-type Phase = 'idle' | 'working' | 'ready';
-
-export type FriendSource = 'export' | 'feed';
-
-/**
- * Ephemeral reactive state for a friend's Letterboxd library loaded strictly for in-memory
- * comparison. Never reads from or writes to localStorage.
- */
+/** Ephemeral in-memory friend library for comparison; never persisted to browser storage. */
 export class FriendLibrary {
-	phase = $state<Phase>('idle');
-	progress = $state<Progress>({ stage: 'films', done: 0, total: 0 });
-	error = $state<string | null>(null);
-	source = $state<FriendSource>('export');
-	loadingSource = $state<FriendSource>('export');
-	usernameDraft = $state('');
+	#loader = new LoadRunner();
+	source = $state<LibrarySource>('export');
 	films = $state.raw<EnrichedFilm[]>([]);
 	watchlist = $state.raw<WatchlistFilm[]>([]);
 	profile = $state.raw<Profile | null>(null);
-	#controller: AbortController | null = null;
+
+	get phase(): LoadPhase {
+		return this.#loader.phase;
+	}
+	get progress(): Progress {
+		return this.#loader.progress;
+	}
+	get error(): string | null {
+		return this.#loader.error;
+	}
+	get loadingSource(): LibrarySource {
+		return this.#loader.loadingSource;
+	}
+	get usernameDraft(): string {
+		return this.#loader.usernameDraft;
+	}
+	set usernameDraft(value: string) {
+		this.#loader.usernameDraft = value;
+	}
 
 	readonly displayName = $derived(this.profile?.givenName || this.profile?.username || 'Friend');
+	readonly feedNote = $derived(
+		this.source === 'feed'
+			? `Loaded up to ${FEED_FILM_LIMIT} of ${this.displayName}'s latest diary entries via RSS. Drop their Letterboxd .zip export for full history and mutual watchlist picks.`
+			: null
+	);
 
 	loadFile(file: File): Promise<void> {
 		return this.#load('export', async () => loadExport(new Uint8Array(await file.arrayBuffer())));
@@ -32,61 +47,36 @@ export class FriendLibrary {
 		return this.#load('feed', () => loadFeed(username));
 	}
 
-	/** Aborts an in-flight load and returns to the idle picker. */
 	cancel(): void {
-		this.#controller?.abort();
-		this.#controller = null;
-		this.phase = 'idle';
-		this.progress = { stage: 'films', done: 0, total: 0 };
+		this.#loader.cancel();
 	}
 
-	/** Clears the loaded friend library so another friend can be compared. */
 	reset(): void {
-		this.#controller?.abort();
-		this.#controller = null;
-		this.phase = 'idle';
-		this.progress = { stage: 'films', done: 0, total: 0 };
-		this.error = null;
+		this.#loader.reset();
 		this.films = [];
 		this.watchlist = [];
 		this.profile = null;
 	}
 
-	#reporter(controller: AbortController): (next: Progress) => void {
-		return (next) => {
-			if (controller === this.#controller) this.progress = next;
-		};
-	}
-
-	async #load(source: FriendSource, load: () => Promise<LetterboxdData>): Promise<void> {
-		this.#controller?.abort();
-		const controller = new AbortController();
-		this.#controller = controller;
-		this.loadingSource = source;
-		this.error = null;
-		this.phase = 'working';
-		this.progress = { stage: 'films', done: 0, total: 0 };
+	async #load(source: LibrarySource, load: () => Promise<LetterboxdData>): Promise<void> {
+		const controller = this.#loader.begin('idle', source);
 		try {
 			const parsed = await load();
-			if (controller !== this.#controller) return;
+			if (!this.#loader.isCurrent(controller)) return;
 			const library = await enrichLibrary(
 				parsed.films,
 				parsed.watchlist,
-				this.#reporter(controller),
+				this.#loader.reporter(controller),
 				controller.signal
 			);
-			if (controller !== this.#controller) return;
+			if (!this.#loader.isCurrent(controller)) return;
 			this.source = source;
 			this.profile = parsed.profile;
 			this.films = library.films;
 			this.watchlist = library.watchlist;
-			this.phase = 'ready';
-			this.#controller = null;
+			this.#loader.finish(controller, 'ready');
 		} catch (cause) {
-			if (controller !== this.#controller) return;
-			this.error = cause instanceof Error ? cause.message : String(cause);
-			this.phase = 'idle';
-			this.#controller = null;
+			this.#loader.fail(controller, cause);
 		}
 	}
 }

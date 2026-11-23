@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { film, tmdb } from '$lib/testing/fixtures';
 import type { CollectionParts, EnrichedFilm } from '$lib/types';
-import { completedFranchiseCount, franchiseProgress } from './franchises';
+import { franchiseProgress, sortFranchises } from './franchises';
 
 function franchiseFilms(id: number, name: string, count: number): EnrichedFilm[] {
 	const collection = { id, name, posterPath: null };
@@ -88,8 +88,9 @@ describe('franchiseProgress', () => {
 			{ id: 5, name: 'Alpha Half Collection', total: 4 }
 		];
 
-		const items = franchiseProgress(films, collections, 'completion');
-		expect(items.map((item) => item.label)).toEqual([
+		const base = franchiseProgress(films, collections, 'count');
+		const byCompletion = sortFranchises(base, 'completion');
+		expect(byCompletion.map((item) => item.label)).toEqual([
 			'Big Done',
 			'Small Done',
 			'Half Big',
@@ -118,7 +119,12 @@ describe('franchiseProgress', () => {
 				{ rating: 4, liked: true },
 				{ rating: 4, liked: true }
 			]),
-			...ratedFranchise(4, 'Plain Tie Collection', [{ rating: 4 }, { rating: 4 }, { rating: 4 }]),
+			...ratedFranchise(4, 'Bigger Plain Tie Collection', [
+				{ rating: 4 },
+				{ rating: 4 },
+				{ rating: 4 }
+			]),
+			...ratedFranchise(7, 'Alpha Plain Tie Collection', [{ rating: 4 }, { rating: 4 }]),
 			...ratedFranchise(5, 'Lower Rated Collection', [{ rating: 3 }, { rating: 2.5 }]),
 			...ratedFranchise(6, 'Unrated Collection', [{ rating: null }, { rating: null }])
 		];
@@ -127,7 +133,8 @@ describe('franchiseProgress', () => {
 		expect(items.map((item) => item.label)).toEqual([
 			'Top Rated',
 			'Hearted Tie',
-			'Plain Tie',
+			'Bigger Plain Tie',
+			'Alpha Plain Tie',
 			'Lower Rated',
 			'Unrated'
 		]);
@@ -166,25 +173,5 @@ describe('franchiseProgress', () => {
 			'count'
 		);
 		expect(complete.missing).toEqual([]);
-	});
-});
-
-describe('completedFranchiseCount', () => {
-	it('counts only franchises marked completed', () => {
-		const films = [
-			...franchiseFilms(1, 'Done One Collection', 3),
-			...franchiseFilms(2, 'Done Two Collection', 2),
-			...franchiseFilms(3, 'Partial Collection', 2),
-			...franchiseFilms(4, 'Unknown Collection', 4)
-		];
-		const collections: CollectionParts[] = [
-			{ id: 1, name: 'Done One Collection', total: 3 },
-			{ id: 2, name: 'Done Two Collection', total: 2 },
-			{ id: 3, name: 'Partial Collection', total: 5 }
-		];
-
-		const items = franchiseProgress(films, collections, 'count');
-		expect(completedFranchiseCount(items)).toBe(2);
-		expect(completedFranchiseCount([])).toBe(0);
 	});
 });

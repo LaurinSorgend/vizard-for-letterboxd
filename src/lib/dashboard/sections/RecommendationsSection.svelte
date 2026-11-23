@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { imageUrl, letterboxdTmdbUrl } from '$lib/film/links';
 	import Section from '../Section.svelte';
+	import { getDashboard } from '../state.svelte';
 	import { getLibrary } from '$lib/library.svelte';
 	import { isTmdbId, MAX_SEEDS, type Recommendation } from '$lib/types';
 	import { fetchRecommendationsSettled } from '$lib/recommend/recommend';
@@ -11,6 +12,7 @@
 	const GENRE_ROW_SIZE = 10;
 
 	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let general: Recommendation[] = $state([]);
 	let genreRows: { genre: string; recommendations: Recommendation[] }[] = $state([]);
@@ -22,7 +24,7 @@
 
 	$effect(() => {
 		attempt;
-		const films = library.filteredFilms;
+		const films = dashboard.films;
 		const exclude = library.recommendExclude;
 		const genres = favoriteGenres(films, GENRE_ROWS);
 		const seedSets = [

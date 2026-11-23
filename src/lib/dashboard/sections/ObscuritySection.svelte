@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import { OBSCURE_VOTES } from '$lib/film/votes';
 	import { count, percent } from '$lib/format';
@@ -7,9 +7,9 @@
 	import { audienceBands } from '$lib/viz/stats';
 	import { obscurityShare } from '$lib/film/tally';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
-	const obscure = $derived(obscurityShare(library.filteredFilms));
+	const obscure = $derived(obscurityShare(dashboard.films));
 </script>
 
 <Section id="obscurity" title="Crowds & deep cuts">
@@ -19,7 +19,7 @@
 		</p>
 	{/if}
 	<RankedBars
-		data={audienceBands(library.filteredFilms)}
+		data={audienceBands(dashboard.films)}
 		description="Films and average rating per combined TMDB + IMDb vote-count band"
 	/>
 </Section>

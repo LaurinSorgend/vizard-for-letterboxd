@@ -7,6 +7,7 @@
 		page,
 		expanded = $bindable(false),
 		dense = false,
+		key = (film: T) => film.uri,
 		poster,
 		label,
 		overlay
@@ -18,6 +19,7 @@
 		expanded?: boolean;
 		/** Small tiles on a hairline gutter, for a wall of the whole library. */
 		dense?: boolean;
+		key?: (film: T) => string;
 		poster: (film: T) => string | null;
 		/** Hover text and accessible name of a tile. */
 		label: (film: T) => string;
@@ -29,7 +31,7 @@
 </script>
 
 <ul class="wall" class:dense>
-	{#each shown as film (film.uri)}
+	{#each shown as film (key(film))}
 		{@const href = webHref(film.uri)}
 		{@const src = poster(film)}
 		<li>

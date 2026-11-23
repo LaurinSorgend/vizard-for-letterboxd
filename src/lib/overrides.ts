@@ -1,25 +1,30 @@
-import { browser } from '$app/environment';
-import { isTmdbId } from '$lib/types';
+import { normalizeUri } from '$lib/film/identity';
+import { readPref, removePref, writePref } from '$lib/prefs';
+import { isTmdbId, isTmdbRef, type TmdbRef } from '$lib/types';
 
 const STORAGE_KEY = 'vizard:tmdb-overrides';
 
-/** A user-supplied TMDB target for a Letterboxd film that automatic lookup missed. */
-export interface TmdbOverride {
-	mediaType: 'movie' | 'tv';
-	tmdbId: number;
-}
+export type OverrideMap = Record<string, TmdbRef>;
 
-/** Normalises a Letterboxd film URI so lookups match regardless of trailing slash or casing. */
-export function normalizeOverrideUri(uri: string): string {
-	return uri.trim().replace(/\/+$/, '').toLowerCase();
+function parseTmdbUrl(raw: string): TmdbRef | null {
+	let url: URL;
+	try {
+		url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+	} catch {
+		return null;
+	}
+	if (!/^(?:www\.)?themoviedb\.org$/i.test(url.hostname)) return null;
+	const match = /^\/(movie|tv)\/(\d+)(?:-[^/]*)?(?:\/|$)/i.exec(url.pathname);
+	if (!match) return null;
+	const tmdbId = Number.parseInt(match[2], 10);
+	return isTmdbId(tmdbId) ? { mediaType: match[1].toLowerCase() as 'movie' | 'tv', tmdbId } : null;
 }
 
 /**
- * Parses a TMDB ID or URL into a typed override target.
  * Accepts plain numeric IDs (`550`), prefixed targets (`movie/550`, `tv/1399`, `tv:1399`),
  * or TMDB web URLs (`https://www.themoviedb.org/movie/550-fight-club`).
  */
-export function parseTmdbOverride(raw: string): TmdbOverride | null {
+export function parseTmdbOverride(raw: string): TmdbRef | null {
 	const trimmed = raw.trim();
 	if (!trimmed) return null;
 
@@ -36,48 +41,26 @@ export function parseTmdbOverride(raw: string): TmdbOverride | null {
 		return { mediaType: prefixed[1].toLowerCase() as 'movie' | 'tv', tmdbId };
 	}
 
-	const urlMatch = /(?:https?:\/\/)?(?:www\.)?themoviedb\.org\/(movie|tv)\/(\d+)/i.exec(trimmed);
-	if (urlMatch) {
-		const tmdbId = Number.parseInt(urlMatch[2], 10);
-		if (!isTmdbId(tmdbId)) return null;
-		return { mediaType: urlMatch[1].toLowerCase() as 'movie' | 'tv', tmdbId };
-	}
-
-	return null;
+	return parseTmdbUrl(trimmed);
 }
 
-/** Compact display token for a saved override, e.g. `movie/550` or `tv/1399`. */
-export function formatTmdbOverride(override: TmdbOverride): string {
+export function formatTmdbOverride(override: TmdbRef): string {
 	return `${override.mediaType}/${override.tmdbId}`;
 }
 
-/** Canonical TMDB web URL for an override target. */
-export function tmdbOverrideUrl(override: TmdbOverride): string {
-	return `https://www.themoviedb.org/${override.mediaType}/${override.tmdbId}`;
+export function getOverride(overrides: OverrideMap, uri: string): TmdbRef | undefined {
+	return overrides[normalizeUri(uri)];
 }
 
-function isValidOverride(value: unknown): value is TmdbOverride {
-	if (!value || typeof value !== 'object') return false;
-	const item = value as Partial<TmdbOverride>;
-	return (
-		(item.mediaType === 'movie' || item.mediaType === 'tv') &&
-		typeof item.tmdbId === 'number' &&
-		Number.isInteger(item.tmdbId) &&
-		isTmdbId(item.tmdbId)
-	);
-}
-
-/** Reads all locally saved TMDB overrides keyed by normalised Letterboxd URI. */
-export function loadOverrides(): Record<string, TmdbOverride> {
-	if (!browser) return {};
+export function loadOverrides(): OverrideMap {
+	const raw = readPref(STORAGE_KEY);
+	if (!raw) return {};
 	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return {};
 		const parsed = JSON.parse(raw) as Record<string, unknown>;
 		if (!parsed || typeof parsed !== 'object') return {};
-		const clean: Record<string, TmdbOverride> = {};
+		const clean: OverrideMap = {};
 		for (const [uri, target] of Object.entries(parsed)) {
-			if (isValidOverride(target)) clean[normalizeOverrideUri(uri)] = target;
+			if (isTmdbRef(target)) clean[normalizeUri(uri)] = target;
 		}
 		return clean;
 	} catch {
@@ -85,33 +68,19 @@ export function loadOverrides(): Record<string, TmdbOverride> {
 	}
 }
 
-function persistOverrides(overrides: Record<string, TmdbOverride>): void {
-	if (!browser) return;
-	try {
-		if (Object.keys(overrides).length === 0) localStorage.removeItem(STORAGE_KEY);
-		else localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
-	} catch {
-		// Ignore storage refusal so the in-memory override still applies for the session.
-	}
+function persistOverrides(overrides: OverrideMap): void {
+	if (Object.keys(overrides).length === 0) removePref(STORAGE_KEY);
+	else writePref(STORAGE_KEY, JSON.stringify(overrides));
 }
 
-/** Saves one local TMDB override and returns the updated map. */
-export function saveOverride(
-	current: Record<string, TmdbOverride>,
-	uri: string,
-	target: TmdbOverride
-): Record<string, TmdbOverride> {
-	const next = { ...current, [normalizeOverrideUri(uri)]: target };
+export function saveOverride(current: OverrideMap, uri: string, target: TmdbRef): OverrideMap {
+	const next = { ...current, [normalizeUri(uri)]: target };
 	persistOverrides(next);
 	return next;
 }
 
-/** Removes one local TMDB override and returns the updated map. */
-export function removeOverride(
-	current: Record<string, TmdbOverride>,
-	uri: string
-): Record<string, TmdbOverride> {
-	const key = normalizeOverrideUri(uri);
+export function removeOverride(current: OverrideMap, uri: string): OverrideMap {
+	const key = normalizeUri(uri);
 	if (!(key in current)) return current;
 	const next = { ...current };
 	delete next[key];

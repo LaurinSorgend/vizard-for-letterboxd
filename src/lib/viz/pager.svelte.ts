@@ -1,12 +1,17 @@
-/** How many rows each "Show more" click adds. */
 export const PAGE_STEP = 20;
 
 /**
  * Show-more paging for a list: opens with `initial()` rows and grows by `PAGE_STEP` per click.
- * Once everything is shown, `reset` collapses back to the first `initial()`.
+ * Pass `resetOn` to collapse back to the first page whenever a filter or sort key changes.
  */
-export function pager(total: () => number, initial: () => number) {
+export function pager(total: () => number, initial: () => number, resetOn?: () => unknown) {
 	let pages = $state(0);
+	if (resetOn) {
+		$effect(() => {
+			resetOn();
+			pages = 0;
+		});
+	}
 	const limit = () => initial() + pages * PAGE_STEP;
 	return {
 		get shown(): number {

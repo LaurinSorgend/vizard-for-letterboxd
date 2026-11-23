@@ -2,10 +2,10 @@ import { DAY_MS } from '$lib/math';
 import {
 	isTmdbId,
 	OFFER_KINDS,
-	offersKey,
+	tmdbRefKey,
 	type OfferKind,
-	type ProviderRequestItem,
-	type RegionOffers
+	type RegionOffers,
+	type TmdbRef
 } from '$lib/types';
 import type { BatchLookup } from './batch';
 import type { FetchBudget } from './budget';
@@ -73,8 +73,8 @@ async function fetchAvailability(
 	return compactAvailability(results ?? {});
 }
 
-export function isProviderItem(item: unknown): item is ProviderRequestItem {
-	const candidate = item as ProviderRequestItem | null;
+export function isProviderItem(item: unknown): item is TmdbRef {
+	const candidate = item as TmdbRef | null;
 	return (
 		Number.isInteger(candidate?.tmdbId) &&
 		(candidate?.mediaType === 'movie' || candidate?.mediaType === 'tv')
@@ -82,8 +82,8 @@ export function isProviderItem(item: unknown): item is ProviderRequestItem {
 }
 
 /** Every country's offers per title. Streaming catalogues change weekly, so they keep for days. */
-export const availability: BatchLookup<ProviderRequestItem, string, WatchAvailability> = {
-	keyOf: (item) => (isTmdbId(item.tmdbId) ? offersKey(item) : null),
+export const availability: BatchLookup<TmdbRef, string, WatchAvailability> = {
+	keyOf: (item) => (isTmdbId(item.tmdbId) ? tmdbRefKey(item) : null),
 	cache: jsonCache<string, WatchAvailability>({
 		table: 'providers',
 		key: 'media_key',

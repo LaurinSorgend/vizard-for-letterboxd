@@ -54,7 +54,6 @@
 	const entries = $derived(
 		calendarEntries([...watchlistFilms, ...recommended], lookup.values, region, kinds, from)
 	);
-	const exportable = $derived(entries);
 	const upcoming = $derived(
 		entries.filter((entry) => entry.date >= today && !entry.film.recommended)
 	);
@@ -76,8 +75,8 @@
 	);
 
 	function exportCalendar() {
-		if (exportable.length === 0) return;
-		downloadIcs(buildIcs(exportable, { region }), `vizard-releases-${region.toLowerCase()}.ics`);
+		if (entries.length === 0) return;
+		downloadIcs(buildIcs(entries, { region }), `vizard-releases-${region.toLowerCase()}.ics`);
 	}
 </script>
 
@@ -88,8 +87,8 @@
 		<button
 			type="button"
 			onclick={exportCalendar}
-			disabled={exportable.length === 0}
-			title={exportable.length === 0 ? 'No releases in the calendar to export' : undefined}
+			disabled={entries.length === 0}
+			title={entries.length === 0 ? 'No releases in the calendar to export' : undefined}
 		>
 			Download .ics
 		</button>

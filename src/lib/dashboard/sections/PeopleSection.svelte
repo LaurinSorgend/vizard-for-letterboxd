@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import RankedBars from '$lib/viz/RankedBars.svelte';
 	import { byPerson } from '$lib/film/tally';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 </script>
 
 <Section id="people" title="People">
@@ -12,14 +12,14 @@
 		<div>
 			<h3>Most-watched directors</h3>
 			<RankedBars
-				data={byPerson(library.filteredFilms, 'directors')}
+				data={byPerson(dashboard.films, 'directors')}
 				description="Films and average rating per director"
 			/>
 		</div>
 		<div>
 			<h3>Most-watched actors</h3>
 			<RankedBars
-				data={byPerson(library.filteredFilms, 'cast')}
+				data={byPerson(dashboard.films, 'cast')}
 				description="Films and average rating per actor"
 			/>
 		</div>

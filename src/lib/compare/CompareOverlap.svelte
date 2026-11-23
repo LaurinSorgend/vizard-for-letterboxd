@@ -42,7 +42,7 @@
 </script>
 
 <section class="compare-block" aria-labelledby="compare-overlap-heading">
-	<h3 id="compare-overlap-heading">Overlap &amp; compatibility</h3>
+	<h3 id="compare-overlap-heading" class="heading">Overlap &amp; compatibility</h3>
 	<StatTiles {tiles} />
 
 	<div class="insights">
@@ -59,20 +59,19 @@
 				</span> Jaccard overlap).
 			</p>
 			{#if overlap.bothRatedCount > 0}
+				{@const bias = overlap.signedBias!}
 				<p>
 					Both rated <span data-numeric>{plural(overlap.bothRatedCount, 'shared film')}</span>,
 					landing within half a star on
-					<span data-numeric>{Math.round(overlap.closeAgreementPct ?? 0)}%</span> of them.
-					{#if overlap.signedBias !== null}
-						{#if Math.abs(overlap.signedBias) < 0.05}
-							Average ratings on shared films are virtually tied.
-						{:else if overlap.signedBias > 0}
-							{yourName} rates shared films
-							<span data-numeric>{fixed(overlap.signedBias, 2)}</span> stars higher on average.
-						{:else}
-							{friendName} rates shared films
-							<span data-numeric>{fixed(-overlap.signedBias, 2)}</span> stars higher on average.
-						{/if}
+					<span data-numeric>{Math.round(overlap.closeAgreementPct!)}%</span> of them.
+					{#if Math.abs(bias) < 0.05}
+						Average ratings on shared films are virtually tied.
+					{:else if bias > 0}
+						{yourName} rates shared films
+						<span data-numeric>{fixed(bias, 2)}</span> stars higher on average.
+					{:else}
+						{friendName} rates shared films
+						<span data-numeric>{fixed(-bias, 2)}</span> stars higher on average.
 					{/if}
 					{#if overlap.pearson !== null}
 						Rating correlation:
@@ -91,12 +90,8 @@
 </section>
 
 <style>
-	.compare-block {
-		margin: 0 0 32px;
-	}
-	h3 {
-		margin: 0 0 12px;
-		color: var(--fg);
+	.heading {
+		margin-bottom: 12px;
 	}
 	.insights {
 		margin-top: 16px;

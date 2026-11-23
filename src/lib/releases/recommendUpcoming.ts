@@ -1,19 +1,15 @@
 import { fetchRecords, fetchUpcoming } from '$lib/api/endpoints';
 import { excludedIds } from '$lib/recommend/recommend';
+import {
+	buildTasteProfile,
+	hasTasteSignals,
+	scoreUpcoming,
+	topPeople
+} from '$lib/recommend/similarity';
 import type { EnrichedFilm, ReleaseKind, TmdbMovie, WatchlistFilm } from '$lib/types';
 import { recommendedCalendarFilm, type CalendarFilm } from './calendar';
-import { buildTasteProfile, scoreUpcoming, topPeople, type TasteProfile } from './similarity';
 
 export type RecommendPhase = 'searching' | 'enriching';
-
-function isEmpty(profile: TasteProfile): boolean {
-	return (
-		profile.directors.size === 0 &&
-		profile.cast.size === 0 &&
-		profile.keywords.size === 0 &&
-		profile.collections.size === 0
-	);
-}
 
 /** Upcoming films scored against the viewer's favourites, skipping anything watched or watchlisted. */
 export async function recommendUpcoming(
@@ -25,7 +21,7 @@ export async function recommendUpcoming(
 	signal: AbortSignal
 ): Promise<CalendarFilm[]> {
 	const profile = buildTasteProfile(films);
-	if (isEmpty(profile)) return [];
+	if (!hasTasteSignals(profile)) return [];
 	const candidates = await fetchUpcoming(region, kinds, topPeople(profile), signal);
 	const exclude = new Set(excludedIds({ films, watchlist }, false));
 	const ids = candidates.map((c) => c.tmdbId).filter((id) => !exclude.has(id));

@@ -1,82 +1,65 @@
 <script lang="ts">
 	import { count, formatDays, formatShort, noun, plural, runtimeLabel } from '$lib/format';
+	import StatTiles, { type StatTile } from '$lib/viz/StatTiles.svelte';
 	import type { WatchlistSummary } from './summary';
 
-	let { summary, region }: { summary: WatchlistSummary; region: string } = $props();
+	let {
+		summary,
+		region,
+		loading = false
+	}: { summary: WatchlistSummary; region: string; loading?: boolean } = $props();
 
-	interface Tile {
-		label: string;
-		value: string;
-		detail: string;
-		numeric: boolean;
-		title?: string;
-	}
+	const ageLabel = (daysAgo: number): string => (daysAgo === 0 ? 'Today' : formatDays(daysAgo));
 
-	function ageLabel(daysAgo: number): string {
-		if (daysAgo === 0) return 'Today';
-		if (daysAgo === 1) return '1 day';
-		return formatDays(daysAgo);
-	}
-
-	const tiles = $derived.by((): Tile[] => {
+	const tiles = $derived.by((): StatTile[] => {
 		const backlogDetail =
 			summary.unmatched > 0
 				? `${noun(summary.total, 'film')} · ${count(summary.unmatched)} unmatched`
 				: noun(summary.total, 'film');
 
-		const list: Tile[] = [
+		const list: StatTile[] = [
 			{
 				label: 'Backlog',
 				value: count(summary.total),
-				detail: backlogDetail,
-				numeric: true
+				detail: backlogDetail
 			},
 			{
 				label: 'Watch time',
 				value: summary.timedCount > 0 ? `${count(summary.totalHours)} hrs` : '—',
 				detail:
-					summary.avgRuntime !== null ? `avg ${runtimeLabel(summary.avgRuntime)}` : 'no runtimes',
-				numeric: true
+					summary.avgRuntime !== null ? `avg ${runtimeLabel(summary.avgRuntime)}` : 'no runtimes'
 			},
 			{
 				label: `Streaming in ${region}`,
-				value: summary.loading
-					? '…'
-					: summary.streamingPct !== null
-						? `${summary.streamingPct}%`
-						: '—',
-				detail: summary.loading
+				value: loading ? '…' : summary.streamingPct !== null ? `${summary.streamingPct}%` : '—',
+				detail: loading
 					? 'checking offers'
 					: summary.checked > 0
 						? `${count(summary.streamingAny)} of ${count(summary.checked)}`
-						: 'no offers checked',
-				numeric: true
+						: 'no offers checked'
 			}
 		];
 
 		if (summary.onSelectedServices !== null) {
 			list.push({
 				label: 'On your services',
-				value: summary.loading
+				value: loading
 					? '…'
 					: summary.onSelectedServices.pct !== null
 						? `${summary.onSelectedServices.pct}%`
 						: '—',
-				detail: summary.loading
-					? 'checking offers'
-					: plural(summary.onSelectedServices.count, 'film'),
-				numeric: true
+				detail: loading ? 'checking offers' : plural(summary.onSelectedServices.count, 'film')
 			});
 		} else {
 			list.push({
 				label: 'Top service',
-				value: summary.loading ? '…' : (summary.topService?.name ?? '—'),
-				detail: summary.loading
+				value: loading ? '…' : (summary.topService?.name ?? '—'),
+				detail: loading
 					? 'checking offers'
 					: summary.topService
 						? `${plural(summary.topService.films, 'film')} · ${summary.topService.pct}%`
 						: 'none streaming',
-				numeric: summary.loading || summary.topService === null
+				numeric: loading || summary.topService === null
 			});
 		}
 
@@ -95,7 +78,7 @@
 	});
 
 	const segments = $derived.by(() => {
-		if (summary.loading || summary.checked === 0) return [];
+		if (loading || summary.checked === 0) return [];
 		const share = (n: number) => (n / summary.checked) * 100;
 		const pct = (n: number) => Math.round(share(n));
 		return [
@@ -103,7 +86,7 @@
 				key: 'stream',
 				label: 'Streaming',
 				films: summary.streamingAny,
-				pct: pct(summary.streamingAny),
+				pct: summary.streamingPct ?? 0,
 				width: share(summary.streamingAny)
 			},
 			{
@@ -125,15 +108,7 @@
 </script>
 
 <div class="watchlist-summary">
-	<dl class="tiles">
-		{#each tiles as tile, i (tile.label)}
-			<div class="tile" class:lead={i === 0}>
-				<dt class="label">{tile.label}</dt>
-				<dd class="value" class:metric={tile.numeric} title={tile.value}>{tile.value}</dd>
-				<dd class="detail" title={tile.title}>{tile.detail}</dd>
-			</div>
-		{/each}
-	</dl>
+	<StatTiles {tiles} compact />
 
 	{#if segments.length > 0}
 		<div class="coverage">
@@ -160,46 +135,6 @@
 <style>
 	.watchlist-summary {
 		margin-bottom: 20px;
-	}
-	.tiles {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-		gap: 12px 20px;
-		margin: 0;
-	}
-	.tile {
-		padding-top: 8px;
-		border-top: 1px solid var(--border);
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-	.tile.lead {
-		border-top: 2px solid var(--accent);
-		padding-top: 7px;
-	}
-	.label {
-		font-size: var(--text-sm);
-		color: var(--fg-secondary);
-	}
-	.value {
-		margin: 0;
-		font-size: var(--text-xl);
-		font-weight: 500;
-		line-height: var(--leading-snug);
-		color: var(--fg);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.detail {
-		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--fg-secondary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.coverage {
 		margin-top: 12px;

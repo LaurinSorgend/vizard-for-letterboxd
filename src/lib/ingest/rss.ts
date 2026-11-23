@@ -2,7 +2,8 @@ import { getOrCreate } from '$lib/maps';
 import { latestWatch } from '$lib/film/diary';
 import { letterboxdFilmUrl } from '$lib/film/links';
 import type { FeedEntry, Film } from '$lib/types';
-import { blankFilm, filmKey } from './film';
+import { filmKey } from '$lib/film/identity';
+import { blankFilm } from './film';
 
 /** Letterboxd's profile feed holds this many film items at most, with no way to page back. */
 export const FEED_FILM_LIMIT = 50;

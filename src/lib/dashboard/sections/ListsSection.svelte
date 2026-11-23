@@ -1,27 +1,26 @@
 <script lang="ts">
-	import { count, formatShort, plural, stars } from '$lib/format';
-	import type { CustomList, EnrichedFilm } from '$lib/types';
+	import { webHref } from '$lib/film/links';
+	import { count, formatIsoDate, plural, stars } from '$lib/format';
+	import { getLibrary } from '$lib/library.svelte';
 	import MetricToggle from '$lib/viz/MetricToggle.svelte';
 	import ShowMore from '$lib/viz/ShowMore.svelte';
 	import { pager } from '$lib/viz/pager.svelte';
-	import { buildListStats, listSummary, type ListSort, type ListStats } from '$lib/viz/lists';
+	import {
+		buildListStats,
+		listSummary,
+		sortListStats,
+		type ListSort,
+		type ListStats
+	} from '$lib/viz/lists';
 	import Section from '../Section.svelte';
+	import { getDashboard } from '../state.svelte';
 
-	let {
-		lists = [],
-		films,
-		activeListId = '',
-		onfilterlist
-	}: {
-		lists?: CustomList[];
-		films: EnrichedFilm[];
-		activeListId?: string;
-		onfilterlist?: (listId: string) => void;
-	} = $props();
+	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let sort: ListSort = $state('size');
 
-	const base = $derived(buildListStats(lists, films, 'size'));
+	const base = $derived(buildListStats(library.lists, library.films));
 	const hasRatings = $derived(base.some((row) => row.avgRating !== null));
 	const sortOptions = $derived([
 		{ value: 'size' as const, label: 'Most films' },
@@ -32,44 +31,28 @@
 	const activeSort = $derived<ListSort>(
 		sortOptions.some((option) => option.value === sort) ? sort : 'size'
 	);
-	const stats = $derived(activeSort === 'size' ? base : buildListStats(lists, films, activeSort));
-	const summary = $derived(listSummary(stats));
+	const stats = $derived(activeSort === 'size' ? base : sortListStats(base, activeSort));
+	const summary = $derived(listSummary(base));
 
 	const paging = pager(
 		() => stats.length,
-		() => 12
+		() => 12,
+		() => activeSort
 	);
 	const rows = $derived(stats.slice(0, paging.shown));
-	const hasCompleted = $derived(rows.some((row) => isCompleted(row)));
+	const hasCompleted = $derived(rows.some((row) => row.completed));
 	const ratioText = (row: ListStats): string => `${row.watched} / ${row.total}`;
 	const countChars = $derived(Math.max(5, ...rows.map((row) => ratioText(row).length)));
-
-	function isCompleted(row: ListStats): boolean {
-		return row.total > 0 && row.watched === row.total;
-	}
-
-	function isHttpUrl(url: string): boolean {
-		return /^https?:\/\//i.test(url);
-	}
-
-	function formatListDate(raw: string | null): string {
-		if (!raw) return '';
-		return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? formatShort(raw) : raw;
-	}
-
-	function toggleFilter(listId: string) {
-		onfilterlist?.(activeListId === listId ? '' : listId);
-	}
 </script>
 
-{#if lists.length > 0}
+{#if library.lists.length > 0}
 	<Section id="lists" title="Your lists" nav="Lists">
 		<p class="chart-note">
 			{plural(summary.listCount, 'list')} · {plural(summary.uniqueFilms, 'unique film')} ·
 			{count(summary.completedLists)} completed
 		</p>
 
-		{#if stats.length > 1 && sortOptions.length > 1}
+		{#if stats.length > 1}
 			<MetricToggle
 				name="list-sort"
 				label="Sort lists by"
@@ -80,14 +63,14 @@
 
 		<div class="list-rows" role="list" aria-label="Custom Letterboxd lists">
 			{#each rows as row (row.list.id)}
-				{@const completed = isCompleted(row)}
-				{@const filtering = activeListId === row.list.id}
+				{@const listHref = webHref(row.list.url)}
+				{@const filtering = dashboard.filters.listId === row.list.id}
 				<article class="list-row" class:filtering role="listitem">
 					<div class="row-head">
 						<div class="title-block">
 							<span class="name">
-								{#if isHttpUrl(row.list.url)}
-									<a href={row.list.url} target="_blank" rel="noopener">{row.list.name}</a>
+								{#if listHref}
+									<a href={listHref} target="_blank" rel="noopener">{row.list.name}</a>
 								{:else}
 									{row.list.name}
 								{/if}
@@ -96,7 +79,7 @@
 								<span class="meta">
 									{#if row.list.date}
 										<time class="date" datetime={row.list.date} data-numeric>
-											{formatListDate(row.list.date)}
+											{formatIsoDate(row.list.date)}
 										</time>
 									{/if}
 									{#each row.list.tags as tag, i (`${tag}-${i}`)}
@@ -106,30 +89,28 @@
 							{/if}
 						</div>
 
-						{#if onfilterlist}
-							<button
-								type="button"
-								class="filter-btn"
-								class:active={filtering}
-								aria-pressed={filtering}
-								onclick={() => toggleFilter(row.list.id)}
-							>
-								{filtering ? 'Filtering' : 'Filter dashboard'}
-							</button>
-						{/if}
+						<button
+							type="button"
+							class="filter-btn"
+							class:active={filtering}
+							aria-pressed={filtering}
+							onclick={() => dashboard.toggleListFilter(row.list.id)}
+						>
+							{filtering ? 'Filtering' : 'Filter dashboard'}
+						</button>
 					</div>
 
 					<div class="progress-line">
 						<span class="meter" aria-hidden="true">
 							{#if row.watched > 0}
-								<span class="bar" class:complete={completed} style="width: {row.pct}%"></span>
+								<span class="bar" class:complete={row.completed} style="width: {row.pct}%"></span>
 							{/if}
 						</span>
-						<span class="val" class:complete={completed} data-numeric>
+						<span class="val" class:complete={row.completed} data-numeric>
 							<span class="ratio" style="width: {countChars}ch">{ratioText(row)}</span>
 							<span class="pct">{row.pct}%</span>
 							{#if hasCompleted}
-								<span class="mark" aria-hidden="true">{completed ? '✓' : ''}</span>
+								<span class="mark" aria-hidden="true">{row.completed ? '✓' : ''}</span>
 							{/if}
 						</span>
 						<span class="avg" data-numeric>{stars(row.avgRating)}</span>
@@ -142,9 +123,10 @@
 							</summary>
 							<ul class="missing-list">
 								{#each row.missing as item, idx (`${item.uri || item.name}-${item.year ?? 'none'}-${idx}`)}
+									{@const itemHref = webHref(item.uri)}
 									<li>
-										{#if isHttpUrl(item.uri)}
-											<a href={item.uri} target="_blank" rel="noopener">{item.name}</a>
+										{#if itemHref}
+											<a href={itemHref} target="_blank" rel="noopener">{item.name}</a>
 										{:else}
 											<span>{item.name}</span>
 										{/if}

@@ -1,6 +1,7 @@
 import { getOrCreate } from '$lib/maps';
 import { median } from '$lib/math';
-import { grouped } from '$lib/film/tally';
+import { byTag, cleanTags } from '$lib/film/tally';
+import { wordCount } from '$lib/text';
 import { datesIn, todayIso, type Library } from '../library';
 import { daysBetween, inYear } from '../calendar';
 import { collectionName } from '$lib/format';
@@ -11,10 +12,6 @@ export interface Writing {
 	words: number;
 	longest: { film: EnrichedFilm; words: number };
 	silent: number;
-}
-
-function wordCount(review: string): number {
-	return review.trim().split(/\s+/).filter(Boolean).length;
 }
 
 /** Reviews belong to the film, not the viewing, so a review counts for the year it was watched. */
@@ -173,12 +170,12 @@ export interface TopTag {
 }
 
 export function topTag(library: Library): TopTag | null {
-	const ranked = grouped(library.slice, (film) => film.tags);
+	const ranked = byTag(library.slice);
 	if (ranked.length === 0) return null;
 	return {
 		tag: ranked[0].label,
 		count: ranked[0].count,
 		distinct: ranked.length,
-		tagged: library.slice.filter((film) => film.tags.length > 0).length
+		tagged: library.slice.filter((film) => cleanTags(film.tags).length > 0).length
 	};
 }

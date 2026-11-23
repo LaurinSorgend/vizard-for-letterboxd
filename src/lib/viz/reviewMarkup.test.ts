@@ -46,21 +46,47 @@ describe('parseReviewMarkup', () => {
 		]);
 	});
 
-	it('allows http and https links and drops unsafe link protocols', () => {
-		const safe = parseReviewMarkup('See <a href="https://letterboxd.com/film/heat/">Heat</a>');
+	it('allows http and https links and drops unsafe or malformed links', () => {
+		const safe = parseReviewMarkup(
+			'See <a href="https://letterboxd.com/film/heat/">Heat</a> and <a href="http://example.com/a">A</a>'
+		);
 		expect(safe).toEqual([
 			{ type: 'text', text: 'See ' },
 			{
 				type: 'a',
 				href: 'https://letterboxd.com/film/heat/',
 				children: [{ type: 'text', text: 'Heat' }]
+			},
+			{ type: 'text', text: ' and ' },
+			{
+				type: 'a',
+				href: 'http://example.com/a',
+				children: [{ type: 'text', text: 'A' }]
 			}
 		]);
 
 		const unsafe = parseReviewMarkup(
-			'Click <a href="javascript:alert(1)">here</a> or <a href="data:text/html,hi">there</a>'
+			'Click <a href="javascript:alert(1)">here</a>, <a href="data:text/html,hi">there</a>, or <a href="http://">nowhere</a>'
 		);
-		expect(unsafe).toEqual([{ type: 'text', text: 'Click here or there' }]);
+		expect(unsafe).toEqual([{ type: 'text', text: 'Click here, there, or nowhere' }]);
+	});
+
+	it('normalizes CRLF, maps <del> to strikethrough, ignores stray closes, and caps nesting depth', () => {
+		expect(parseReviewMarkup('Line 1\r\n<del>cut</del></i>')).toEqual([
+			{ type: 'text', text: 'Line 1\n' },
+			{ type: 's', children: [{ type: 'text', text: 'cut' }] }
+		]);
+
+		const deep = `${'<i>'.repeat(24)}x${'</i>'.repeat(24)}`;
+		let node = parseReviewMarkup(deep)[0];
+		let depth = 0;
+		while (node && 'children' in node) {
+			depth += 1;
+			node = node.children[0];
+		}
+		expect(depth).toBeGreaterThan(0);
+		expect(depth).toBeLessThan(24);
+		expect(node).toEqual({ type: 'text', text: 'x' });
 	});
 
 	it('keeps unknown or malicious tags and angle brackets as literal text', () => {

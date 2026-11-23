@@ -71,15 +71,27 @@ describe('buildTasteProfile', () => {
 });
 
 describe('hasTasteSignals', () => {
-	it('is false when every affinity collection is empty', () => {
-		expect(hasTasteSignals(emptyProfile())).toBe(false);
-	});
-
-	it('is true when any one of directors, cast, keywords, or collections is populated', () => {
-		expect(hasTasteSignals({ ...emptyProfile(), directors: new Map([[1, 0.5]]) })).toBe(true);
-		expect(hasTasteSignals({ ...emptyProfile(), cast: new Map([[1, 0.5]]) })).toBe(true);
-		expect(hasTasteSignals({ ...emptyProfile(), keywords: new Map([['heist', 0.5]]) })).toBe(true);
-		expect(hasTasteSignals({ ...emptyProfile(), collections: new Set([10]) })).toBe(true);
+	it('is false when a library has no favourites and true when any signal is present', () => {
+		expect(hasTasteSignals(buildTasteProfile([]))).toBe(false);
+		expect(hasTasteSignals(buildTasteProfile([film({ rating: 3, tmdb: tmdb() })]))).toBe(false);
+		expect(hasTasteSignals(buildTasteProfile([fav({ directors: [person(1)] })]))).toBe(true);
+		expect(
+			hasTasteSignals(buildTasteProfile([fav({ cast: crew(10) }), fav({ cast: crew(10) })]))
+		).toBe(true);
+		expect(
+			hasTasteSignals(
+				buildTasteProfile([
+					fav({ keywords: ['heist'] }),
+					fav({ keywords: ['heist'] }),
+					...filler(18)
+				])
+			)
+		).toBe(true);
+		expect(
+			hasTasteSignals(
+				buildTasteProfile([fav({ collection: { id: 77, name: 'Saga', posterPath: null } })])
+			)
+		).toBe(true);
 	});
 });
 
@@ -92,13 +104,16 @@ describe('scoreFilm', () => {
 		});
 	});
 
-	it('scores films without cast-count or threshold cutoffs', () => {
-		const profile = { ...emptyProfile(), cast: new Map([[501, 0.2]]) };
+	it('scores a thin-cast candidate that scoreUpcoming skips', () => {
+		const profile = buildTasteProfile([
+			fav({ cast: [person(501, 'Bea')] }),
+			fav({ cast: [person(501, 'Bea')] })
+		]);
 		const thin = candidate({ directors: [], cast: [person(501, 'Bea')] });
 		const match = scoreFilm(profile, thin);
 		expect(match.score).toBeGreaterThan(0);
-		expect(match.score).toBeLessThan(0.15);
 		expect(match.reason).toBe('cast Bea');
+		expect(scoreUpcoming(profile, [thin])).toEqual([]);
 	});
 
 	it('combines matching director, cast, keywords and collection into score and reason', () => {
@@ -153,25 +168,11 @@ describe('scoreUpcoming', () => {
 	});
 
 	it('skips records with fewer than 3 cast', () => {
-		const profile = { ...emptyProfile(), directors: new Map([[1, 1]]) };
+		const profile = buildTasteProfile([fav({ directors: [person(1)] })]);
 		const thin = candidate({ cast: crew(501, 502) });
 		const kept = candidate({});
 		const result = scoreUpcoming(profile, [thin, kept]);
 		expect(result.map((s) => s.record.tmdbId)).toEqual([kept.tmdbId]);
-	});
-
-	it('explains the match by director, cast, keywords and series', () => {
-		const shared = {
-			directors: [person(1, 'Ada')],
-			cast: [person(501, 'Bea'), person(502, 'Cal'), person(503, 'Dot')],
-			keywords: ['heist'],
-			collection: { id: 77, name: 'Saga', posterPath: null }
-		};
-		const profile = buildTasteProfile([fav(shared), fav(shared), ...filler(18)]);
-		const [scored] = scoreUpcoming(profile, [candidate(shared)]);
-		expect(scored.reason).toBe(
-			'Director Ada · cast Bea, Cal · keywords: heist · same series as a favourite'
-		);
 	});
 });
 

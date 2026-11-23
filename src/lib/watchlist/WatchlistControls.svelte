@@ -22,9 +22,13 @@
 		palette: PosterPalette;
 		/** Posters the colour sort would read. */
 		posters: (string | null)[];
-		/** True when the viewer's library has enough favourite signals for taste sorting. */
 		hasTaste?: boolean;
 	} = $props();
+
+	function isDisabled(option: (typeof SORT_OPTIONS)[number]): boolean {
+		if (!('requires' in option)) return false;
+		return option.requires === 'palette' ? !palette.ready : !hasTaste;
+	}
 </script>
 
 <div class="controls">
@@ -45,11 +49,7 @@
 		Order
 		<select bind:value={sort}>
 			{#each SORT_OPTIONS as option (option.value)}
-				<option
-					value={option.value}
-					disabled={('needsPalette' in option && option.needsPalette && !palette.ready) ||
-						('needsTaste' in option && option.needsTaste && !hasTaste)}
-				>
+				<option value={option.value} disabled={isDisabled(option)}>
 					{option.label}
 				</option>
 			{/each}

@@ -7,6 +7,9 @@
 		onsubmit
 	}: { value?: string; onsubmit: (username: string) => void } = $props();
 	let invalid = $state(false);
+	const uid = $props.id();
+	const inputId = `${uid}-username`;
+	const errorId = `${uid}-username-error`;
 
 	function submit(e: SubmitEvent) {
 		e.preventDefault();
@@ -22,10 +25,10 @@
 </script>
 
 <form class="username" onsubmit={submit}>
-	<label for="lb-username">No export? Use your Letterboxd username or profile link</label>
+	<label for={inputId}>No export? Use your Letterboxd username or profile link</label>
 	<div class="row">
 		<input
-			id="lb-username"
+			id={inputId}
 			type="text"
 			bind:value
 			oninput={() => (invalid = false)}
@@ -34,13 +37,13 @@
 			spellcheck="false"
 			placeholder="username"
 			aria-invalid={invalid ? 'true' : undefined}
-			aria-describedby={invalid ? 'lb-username-error' : undefined}
+			aria-describedby={invalid ? errorId : undefined}
 			required
 		/>
 		<button type="submit">Load</button>
 	</div>
 	{#if invalid}
-		<p id="lb-username-error" class="field-error">
+		<p id={errorId} class="field-error">
 			Enter a Letterboxd username like filmfan99, or paste your profile link.
 		</p>
 	{/if}

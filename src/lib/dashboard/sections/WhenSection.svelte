@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
 	import Section from '../Section.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Heatmap from '$lib/viz/Heatmap.svelte';
 	import MetricToggle from '$lib/viz/MetricToggle.svelte';
 	import {
@@ -13,22 +13,25 @@
 		type SeasonScale
 	} from '$lib/viz/heatmap';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let heatMetric: HeatMetric = $state('rating');
 	let seasonScale: SeasonScale = $state('genre');
 	let chosenYear: number | null = $state(null);
 
-	const dayBuckets = $derived(bucketsByDay(library.filteredFilms));
+	const dayBuckets = $derived(bucketsByDay(dashboard.films));
 	const years = $derived(diaryYears(dayBuckets));
 	const dailyYear = $derived(
 		chosenYear !== null && years.includes(chosenYear)
 			? chosenYear
 			: (years[0] ?? new Date().getFullYear())
 	);
+	$effect(() => {
+		if (chosenYear !== null && !years.includes(chosenYear)) chosenYear = null;
+	});
 	const dailyHeatmap = $derived(buildDailyHeatmap(dayBuckets, dailyYear));
 	const weeklyHeatmap = $derived(buildWeeklyHeatmap(dayBuckets));
-	const seasonalHeatmap = $derived(buildSeasonalHeatmap(library.filteredFilms, seasonScale));
+	const seasonalHeatmap = $derived(buildSeasonalHeatmap(dashboard.films, seasonScale));
 </script>
 
 <Section id="when" title="When you watch">

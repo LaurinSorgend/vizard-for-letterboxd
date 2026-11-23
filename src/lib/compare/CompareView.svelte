@@ -1,30 +1,29 @@
 <script lang="ts">
 	import FileDrop from '$lib/FileDrop.svelte';
+	import LoadProgress from '$lib/LoadProgress.svelte';
 	import UsernameForm from '$lib/UsernameForm.svelte';
-	import { count, plural } from '$lib/format';
-	import { FEED_FILM_LIMIT } from '$lib/ingest/rss';
-	import type { EnrichedFilm, WatchlistFilm } from '$lib/types';
+	import { plural } from '$lib/format';
 	import CompareDisagreements from './CompareDisagreements.svelte';
 	import CompareOverlap from './CompareOverlap.svelte';
 	import CompareSharedTaste from './CompareSharedTaste.svelte';
 	import CompareWatchTogether from './CompareWatchTogether.svelte';
-	import { compareLibraries } from './compare';
-	import { FriendLibrary } from './friend.svelte';
+	import { compareLibraries, type LibraryInput } from './compare';
+	import type { FriendLibrary } from './friend.svelte';
+	import './compare.css';
 
 	let {
 		you,
-		friend = new FriendLibrary()
+		yourName,
+		friend
 	}: {
-		you: { name: string; films: EnrichedFilm[]; watchlist: WatchlistFilm[] };
-		friend?: FriendLibrary;
+		you: LibraryInput;
+		yourName: string;
+		friend: FriendLibrary;
 	} = $props();
-
-	const { stage, done, total } = $derived(friend.progress);
 
 	const comparison = $derived(
 		friend.phase === 'ready'
 			? compareLibraries(you, {
-					name: friend.displayName,
 					films: friend.films,
 					watchlist: friend.watchlist
 				})
@@ -50,31 +49,20 @@
 			onsubmit={(username) => friend.loadUsername(username)}
 		/>
 	{:else if friend.phase === 'working'}
-		<div class="progress" role="status">
-			{#if total === 0}
-				<p>
-					{friend.loadingSource === 'feed'
-						? "Reading friend's diary feed…"
-						: "Reading friend's export…"}
-				</p>
-			{:else if stage === 'ratings'}
-				<p>Looking up ratings… <span data-numeric>{done} / {total}</span></p>
-				<progress value={done} max={total} aria-label="Friend ratings lookup progress"></progress>
-			{:else}
-				<p>Looking up film data… <span data-numeric>{done} / {total}</span></p>
-				<progress value={done} max={total} aria-label="Friend film lookup progress"></progress>
-			{/if}
-			<button type="button" class="small-button cancel" onclick={() => friend.cancel()}>
-				Cancel
-			</button>
-		</div>
+		<LoadProgress
+			progress={friend.progress}
+			source={friend.loadingSource}
+			subject="friend's"
+			labelPrefix="Friend"
+			oncancel={() => friend.cancel()}
+		/>
 	{:else if comparison}
 		<div class="matchup">
 			<div>
-				<h3 class="vs">{you.name} vs {friend.displayName}</h3>
+				<h3 class="vs">{yourName} vs {friend.displayName}</h3>
 				<p class="counts">
-					<span data-numeric>{plural(you.films.length, 'film')}</span> vs
-					<span data-numeric>{plural(friend.films.length, 'film')}</span>
+					<span data-numeric>{plural(comparison.overlap.yourCount, 'film')}</span> vs
+					<span data-numeric>{plural(comparison.overlap.friendCount, 'film')}</span>
 				</p>
 			</div>
 			<button type="button" class="small-button" onclick={() => friend.reset()}>
@@ -82,37 +70,29 @@
 			</button>
 		</div>
 
-		{#if friend.source === 'feed'}
-			<p class="feed-note" role="status">
-				Loaded {friend.displayName}'s <span data-numeric>{count(FEED_FILM_LIMIT)}</span> latest
-				diary entries via RSS. Drop their Letterboxd <code>.zip</code> export for full history and mutual
-				watchlist picks.
-			</p>
+		{#if friend.feedNote}
+			<p class="feed-note" role="status">{friend.feedNote}</p>
 		{/if}
 
-		<CompareOverlap
-			overlap={comparison.overlap}
-			yourName={you.name}
-			friendName={friend.displayName}
-		/>
+		<CompareOverlap overlap={comparison.overlap} {yourName} friendName={friend.displayName} />
 
 		<CompareDisagreements
 			disagreements={comparison.disagreements}
 			mutualFavourites={comparison.mutualFavourites}
-			yourName={you.name}
+			{yourName}
 			friendName={friend.displayName}
 		/>
 
 		<CompareSharedTaste
 			sharedDirectors={comparison.sharedDirectors}
 			sharedGenres={comparison.sharedGenres}
-			yourName={you.name}
+			{yourName}
 			friendName={friend.displayName}
 		/>
 
 		<CompareWatchTogether
 			watchTogether={comparison.watchTogether}
-			yourName={you.name}
+			{yourName}
 			friendName={friend.displayName}
 			friendFromFeed={friend.source === 'feed'}
 			yourWatchlistCount={you.watchlist.length}
@@ -135,14 +115,6 @@
 		background: color-mix(in srgb, var(--error) 12%, transparent);
 		color: var(--error);
 	}
-	.progress {
-		text-align: center;
-		padding: 48px 0;
-	}
-	progress {
-		width: min(400px, 100%);
-		accent-color: var(--accent);
-	}
 	.small-button {
 		font: inherit;
 		font-size: var(--text-sm);
@@ -154,10 +126,6 @@
 	}
 	.small-button:hover {
 		background: var(--surface);
-	}
-	.cancel {
-		display: block;
-		margin: 16px auto 0;
 	}
 	.matchup {
 		display: flex;

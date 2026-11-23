@@ -1,89 +1,60 @@
 <script lang="ts">
+	import { watchYears as extractWatchYears } from '$lib/film/diary';
+	import { isSeries } from '$lib/film/runtime';
+	import { byTag } from '$lib/film/tally';
 	import { count, noun } from '$lib/format';
-	import type { CustomList, EnrichedFilm } from '$lib/types';
-	import {
-		activeFilterChips,
-		availableTags,
-		availableWatchYears,
-		clearFilterChip,
-		hasActiveDashboardFilters,
-		NO_DASHBOARD_FILTERS,
-		type DashboardFilters,
-		type FilterChip
-	} from './filters';
+	import { getLibrary } from '$lib/library.svelte';
+	import { fullCalendarYear } from './filters';
+	import { getDashboard } from './state.svelte';
 
-	let {
-		films,
-		filteredCount,
-		lists = [],
-		filters = $bindable()
-	}: {
-		films: EnrichedFilm[];
-		filteredCount: number;
-		lists?: CustomList[];
-		filters: DashboardFilters;
-	} = $props();
+	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let open = $state(false);
-	let customDatesOpen = $state(false);
 	let toggleButton: HTMLButtonElement | undefined = $state();
 
-	const watchYears = $derived(availableWatchYears(films));
-	const tags = $derived(availableTags(films));
-	const hasSeries = $derived(films.some((f) => f.tmdb?.mediaType === 'tv'));
+	const watchYears = $derived(extractWatchYears(library.films));
+	const tags = $derived(byTag(library.films));
+	const hasSeries = $derived(library.films.some(isSeries));
 	const hasControls = $derived(
-		watchYears.length > 0 || hasSeries || tags.length > 0 || lists.length > 0
+		watchYears.length > 0 || hasSeries || tags.length > 0 || library.lists.length > 0
 	);
-	const active = $derived(hasActiveDashboardFilters(filters));
-	const chips = $derived(activeFilterChips(filters, lists));
 
 	const watchMode = $derived.by(() => {
-		const from = filters.fromDate.trim();
-		const to = filters.toDate.trim();
-		if (customDatesOpen) return 'custom';
+		const from = dashboard.filters.fromDate.trim();
+		const to = dashboard.filters.toDate.trim();
+		if (dashboard.customDatesOpen) return 'custom';
 		if (!from && !to) return '';
-		const match = /^(\d{4})-01-01$/.exec(from);
-		if (match && to === `${match[1]}-12-31` && watchYears.includes(Number(match[1]))) {
-			return match[1];
-		}
+		const year = fullCalendarYear(from, to);
+		if (year && watchYears.includes(Number(year))) return year;
 		return 'custom';
 	});
 
-	const invertedDates = $derived(
-		filters.fromDate.trim().length > 0 &&
-			filters.toDate.trim().length > 0 &&
-			filters.fromDate > filters.toDate
-	);
+	const invertedDates = $derived.by(() => {
+		const from = dashboard.filters.fromDate.trim();
+		const to = dashboard.filters.toDate.trim();
+		return from.length > 0 && to.length > 0 && from > to;
+	});
 
 	function onWatchModeChange(event: Event & { currentTarget: HTMLSelectElement }) {
 		const value = event.currentTarget.value;
 		if (value === '') {
-			customDatesOpen = false;
-			filters.fromDate = '';
-			filters.toDate = '';
+			dashboard.customDatesOpen = false;
+			dashboard.filters.fromDate = '';
+			dashboard.filters.toDate = '';
 		} else if (value === 'custom') {
-			customDatesOpen = true;
+			dashboard.customDatesOpen = true;
 		} else {
-			customDatesOpen = false;
-			filters.fromDate = `${value}-01-01`;
-			filters.toDate = `${value}-12-31`;
+			dashboard.customDatesOpen = false;
+			dashboard.filters.fromDate = `${value}-01-01`;
+			dashboard.filters.toDate = `${value}-12-31`;
 		}
 	}
 
 	function swapDates() {
-		const from = filters.fromDate;
-		filters.fromDate = filters.toDate;
-		filters.toDate = from;
-	}
-
-	function removeChip(key: FilterChip['key']) {
-		if (key === 'dates') customDatesOpen = false;
-		filters = clearFilterChip(filters, key);
-	}
-
-	function reset() {
-		customDatesOpen = false;
-		filters = { ...NO_DASHBOARD_FILTERS };
+		const from = dashboard.filters.fromDate;
+		dashboard.filters.fromDate = dashboard.filters.toDate;
+		dashboard.filters.toDate = from;
 	}
 
 	function onKeydown(event: KeyboardEvent) {
@@ -102,7 +73,7 @@
 			type="button"
 			class="toggle-button"
 			class:expanded={open}
-			class:has-active={active}
+			class:has-active={dashboard.isFiltered}
 			aria-expanded={open}
 			aria-controls="dashboard-filter-panel"
 			onclick={() => (open = !open)}
@@ -121,21 +92,21 @@
 			>
 				<path d="M1.5 2.5 H14.5 L9.5 8.5 V13.5 L6.5 12 V8.5 Z" />
 			</svg>
-			Filter{#if chips.length > 0}
-				<span class="badge" data-numeric>{chips.length}</span>
+			Filter{#if dashboard.chips.length > 0}
+				<span class="badge" data-numeric>{dashboard.chips.length}</span>
 			{/if}
 			<span class="chevron" aria-hidden="true">{open ? '▴' : '▾'}</span>
 		</button>
 
-		{#if chips.length > 0}
+		{#if dashboard.chips.length > 0}
 			<ul class="chips" aria-label="Active filters">
-				{#each chips as chip (chip.key)}
+				{#each dashboard.chips as chip (chip.key)}
 					<li>
 						<button
 							type="button"
 							class="chip"
 							aria-label={`Remove filter: ${chip.label}`}
-							onclick={() => removeChip(chip.key)}
+							onclick={() => dashboard.removeChip(chip.key)}
 						>
 							<span>{chip.label}</span>
 							<span class="dismiss" aria-hidden="true">×</span>
@@ -145,14 +116,14 @@
 			</ul>
 		{/if}
 
-		{#if active}
+		{#if dashboard.isFiltered}
 			<div class="status">
 				<p class="status-count" role="status">
-					<span data-numeric>{count(filteredCount)}</span> of
-					<span data-numeric>{count(films.length)}</span>
-					{noun(films.length, 'film')}
+					<span data-numeric>{count(dashboard.films.length)}</span> of
+					<span data-numeric>{count(library.films.length)}</span>
+					{noun(library.films.length, 'film')}
 				</p>
-				<button type="button" class="reset-button" onclick={reset}>Reset</button>
+				<button type="button" class="reset-button" onclick={() => dashboard.reset()}>Reset</button>
 			</div>
 		{/if}
 	</div>
@@ -177,16 +148,16 @@
 								Watched from
 								<input
 									type="date"
-									max={filters.toDate || undefined}
-									bind:value={filters.fromDate}
+									max={dashboard.filters.toDate || undefined}
+									bind:value={dashboard.filters.fromDate}
 								/>
 							</label>
 							<label>
 								Watched to
 								<input
 									type="date"
-									min={filters.fromDate || undefined}
-									bind:value={filters.toDate}
+									min={dashboard.filters.fromDate || undefined}
+									bind:value={dashboard.filters.toDate}
 								/>
 							</label>
 						{/if}
@@ -194,7 +165,7 @@
 					{#if hasSeries}
 						<label>
 							Type
-							<select bind:value={filters.mediaType}>
+							<select bind:value={dashboard.filters.mediaType}>
 								<option value="all">Films &amp; series</option>
 								<option value="movie">Films</option>
 								<option value="tv">Series</option>
@@ -204,20 +175,20 @@
 					{#if tags.length > 0}
 						<label>
 							Tag
-							<select bind:value={filters.tag}>
+							<select bind:value={dashboard.filters.tag}>
 								<option value="">Any tag</option>
-								{#each tags as item (item.tag)}
-									<option value={item.tag}>{item.tag} ({count(item.count)})</option>
+								{#each tags as item (item.key)}
+									<option value={item.label}>{item.label} ({count(item.count)})</option>
 								{/each}
 							</select>
 						</label>
 					{/if}
-					{#if lists.length > 0}
+					{#if library.lists.length > 0}
 						<label>
 							List
-							<select bind:value={filters.listId}>
+							<select bind:value={dashboard.filters.listId}>
 								<option value="">Any list</option>
-								{#each lists as list (list.id)}
+								{#each library.lists as list (list.id)}
 									<option value={list.id}>{list.name} ({count(list.items.length)})</option>
 								{/each}
 							</select>
@@ -236,17 +207,14 @@
 			<div class="panel-footer">
 				<div class="toggles">
 					<label class="inline">
-						<input type="checkbox" bind:checked={filters.diaryOnly} />
+						<input type="checkbox" bind:checked={dashboard.filters.diaryOnly} />
 						Diary-logged only
 					</label>
 					<label class="inline">
-						<input type="checkbox" bind:checked={filters.heartedOnly} />
+						<input type="checkbox" bind:checked={dashboard.filters.heartedOnly} />
 						Hearted only
 					</label>
 				</div>
-				{#if active}
-					<button type="button" class="reset-button" onclick={reset}>Reset all</button>
-				{/if}
 			</div>
 		</div>
 	{/if}

@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte';
+	import { getDashboard } from '../state.svelte';
 	import Section from '../Section.svelte';
 	import { isSeries } from '$lib/film/runtime';
 	import MetricToggle from '$lib/viz/MetricToggle.svelte';
 	import RankedBars from '$lib/viz/RankedBars.svelte';
 	import { runtimeBuckets } from '$lib/viz/stats';
 
-	const library = getLibrary();
+	const dashboard = getDashboard();
 
 	let runtimeScope = $state<'films' | 'all'>('films');
-	const films = $derived(library.filteredFilms);
+	const films = $derived(dashboard.films);
 	const hasMovies = $derived(films.some((f) => !isSeries(f) && !!f.tmdb?.runtime));
 	const hasSeries = $derived(films.some((f) => isSeries(f) && !!f.tmdb?.runtime));
 	const showToggle = $derived(hasMovies && hasSeries);

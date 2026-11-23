@@ -1,6 +1,8 @@
 import { createContext } from 'svelte';
+import { fetchFeed } from '$lib/api/endpoints';
+import { normalizeUri } from '$lib/film/identity';
 import { noun } from '$lib/format';
-import { enrichOmdb, fetchFeed, fetchTypedRecords } from '$lib/api/endpoints';
+import { LoadRunner, type LoadPhase } from '$lib/ingest/loader.svelte';
 import {
 	applyTmdbOverrides,
 	collectionsFor,
@@ -8,35 +10,24 @@ import {
 	loadExport,
 	loadFeed,
 	refreshFromFeed,
+	resolveTmdbOverride,
 	type Progress
 } from '$lib/ingest/pipeline';
 import { FEED_FILM_LIMIT } from '$lib/ingest/rss';
-import {
-	filterDashboardFilms,
-	hasActiveDashboardFilters,
-	NO_DASHBOARD_FILTERS,
-	type DashboardFilters
-} from '$lib/dashboard/filters';
-import {
-	loadOverrides,
-	normalizeOverrideUri,
-	removeOverride,
-	saveOverride,
-	type TmdbOverride
-} from '$lib/overrides';
+import { loadOverrides, removeOverride, saveOverride, type OverrideMap } from '$lib/overrides';
 import { excludedIds } from '$lib/recommend/recommend';
 import { clearSnapshot, loadSnapshot, saveSnapshot, type LibrarySource } from '$lib/store';
-import {
-	offersKey,
-	type CollectionParts,
-	type CustomList,
-	type EnrichedFilm,
-	type LetterboxdData,
-	type Profile,
-	type WatchlistFilm
+import type {
+	CollectionParts,
+	CustomList,
+	EnrichedFilm,
+	LetterboxdData,
+	OmdbRatings,
+	Profile,
+	TmdbMovie,
+	TmdbRef,
+	WatchlistFilm
 } from '$lib/types';
-
-type Phase = 'idle' | 'working' | 'ready';
 
 const FEED_ONLY_NOTE = `Only your ${FEED_FILM_LIMIT} latest diary entries.`;
 
@@ -46,61 +37,55 @@ export const LOOKUP_FAILURE_SHARE = 0.5;
 /**
  * The library this visit works on: how it was loaded, the analysed films and watchlist, and
  * whether it is remembered on this device. A load or a feed top-up sets the films through
- * `#setFilms`, which recomputes franchise sizes and then saves; `restore` takes a snapshot back
- * exactly as it was saved.
+ * `#setFilms`, which refreshes franchise parts and then saves.
  */
 export class Library {
-	phase = $state<Phase>('idle');
-	progress = $state<Progress>({ stage: 'films', done: 0, total: 0 });
-	/** Why the last load failed; shown on the start screen. */
-	error = $state<string | null>(null);
+	#loader = new LoadRunner();
 	films = $state.raw<EnrichedFilm[]>([]);
 	watchlist = $state.raw<WatchlistFilm[]>([]);
 	lists = $state.raw<CustomList[]>([]);
 	collections = $state.raw<CollectionParts[]>([]);
 	profile = $state.raw<Profile | null>(null);
-	filters = $state<DashboardFilters>({ ...NO_DASHBOARD_FILTERS });
 	source = $state<LibrarySource>('export');
 	remember = $state(false);
 	saveError = $state<string | null>(null);
 	feedNote = $state<string | null>(null);
 	/** The feed starts after the last known viewing, so only a fresh export fills the gap. */
 	feedGap = $state(false);
-	/** Whether recommendations may suggest films already on the watchlist. */
 	includeWatchlist = $state(false);
-	/** Where the running load comes from, so its progress can be worded to match. */
-	loadingSource = $state<LibrarySource>('export');
-	/** The username typed on the start screen; kept when a load fails. */
-	usernameDraft = $state('');
-	/** Local user-supplied TMDB overrides, keyed by normalised Letterboxd URI. */
-	overrides = $state.raw<Record<string, TmdbOverride>>(loadOverrides());
-	#controller: AbortController | null = null;
-	#cancelTo: Phase = 'idle';
+	overrides = $state.raw<OverrideMap>(loadOverrides());
+	/** Incremented whenever a different library is loaded or restored, so views reset transient state. */
+	loadId = $state(0);
 	#saveSeq = 0;
 
-	/** Whether TMDB could not match more than `LOOKUP_FAILURE_SHARE` of the films. */
+	get phase(): LoadPhase {
+		return this.#loader.phase;
+	}
+	get progress(): Progress {
+		return this.#loader.progress;
+	}
+	get error(): string | null {
+		return this.#loader.error;
+	}
+	get loadingSource(): LibrarySource {
+		return this.#loader.loadingSource;
+	}
+	get usernameDraft(): string {
+		return this.#loader.usernameDraft;
+	}
+	set usernameDraft(value: string) {
+		this.#loader.usernameDraft = value;
+	}
+
 	readonly lookupFailed = $derived(
 		this.films.length > 0 &&
 			this.films.filter((f) => !f.tmdb).length / this.films.length > LOOKUP_FAILURE_SHARE
 	);
-	/** Whether a loaded library is there to go back to. */
 	readonly canResume = $derived(this.films.length > 0);
-	/** TMDB ids recommendations must leave out. */
 	readonly recommendExclude = $derived(excludedIds(this, this.includeWatchlist));
 	/** A feed-only library, or one with a gap the feed cannot fill, is completed by an export. */
 	readonly offersExport = $derived(this.source === 'feed' || this.feedGap);
 	readonly displayName = $derived(this.profile?.givenName || this.profile?.username || null);
-	/** Dashboard films after applying the global filter bar. */
-	readonly filteredFilms = $derived(filterDashboardFilms(this.films, this.filters, this.lists));
-	readonly isFiltered = $derived(hasActiveDashboardFilters(this.filters));
-
-	resetFilters(): void {
-		this.filters = { ...NO_DASHBOARD_FILTERS };
-	}
-
-	setListFilter(listId: string): void {
-		this.filters = { ...this.filters, listId };
-	}
 
 	loadFile(file: File): Promise<void> {
 		return this.#analyse('export', async () =>
@@ -113,52 +98,48 @@ export class Library {
 		return this.#analyse('feed', () => loadFeed(username));
 	}
 
-	/** Picks up a remembered library from IndexedDB, then tops it up from the feed. */
+	/** Restores a remembered library, upgrades any legacy collections, then tops up from the feed. */
 	async restore(): Promise<void> {
 		const snapshot = await loadSnapshot();
-		if (!snapshot || this.phase !== 'idle') return;
+		if (!snapshot || this.#loader.phase !== 'idle') return;
 		this.films = snapshot.films;
 		this.watchlist = snapshot.watchlist;
 		this.lists = snapshot.lists ?? [];
 		this.collections = snapshot.collections;
 		this.profile = snapshot.profile;
-		this.filters = { ...NO_DASHBOARD_FILTERS };
 		this.source = snapshot.source;
 		this.remember = true;
-		this.phase = 'ready';
-		void this.#refreshMissingCollectionParts();
-		void this.#syncFeed();
+		this.loadId += 1;
+		this.#loader.phase = 'ready';
+		void this.#postRestore();
+	}
+
+	async #postRestore(): Promise<void> {
+		await this.#refreshMissingCollectionParts();
+		await this.#syncFeed();
 	}
 
 	/** Upgrades restored collections saved before franchise `parts` stubs were stored. */
 	async #refreshMissingCollectionParts(): Promise<void> {
-		const hasLegacy = this.films.some((film) => {
-			const id = film.tmdb?.collection?.id;
-			if (id == null) return false;
-			const entry = this.collections.find((c) => c.id === id);
-			return !entry || !Array.isArray(entry.parts);
-		});
-		if (!hasLegacy) return;
 		try {
-			const next = await collectionsFor(this.films, this.collections);
-			this.collections = next;
-			if (this.remember) void this.#persist();
+			const { collections, updated } = await collectionsFor(this.films, this.collections);
+			if (!updated) return;
+			this.collections = collections;
+			if (this.remember) await this.#persist();
 		} catch {
-			// Leave existing collection counts intact if refresh fails.
+			return;
 		}
 	}
 
-	/** Back to the start screen, to load another library. */
 	startOver(): void {
-		this.phase = 'idle';
+		this.#loader.phase = 'idle';
 	}
 
-	/** Tops a remembered library up with whatever the member logged since it was saved. */
 	async #syncFeed(): Promise<void> {
 		const username = this.profile?.username;
 		if (!username) return;
 		try {
-			const refresh = await refreshFromFeed(this.films, await fetchFeed(username));
+			const refresh = await refreshFromFeed(this.films, await fetchFeed(username), this.overrides);
 			this.feedGap = refresh.gap;
 			this.feedNote = refresh.gap
 				? 'Some diary entries are missing.'
@@ -188,32 +169,22 @@ export class Library {
 		return this.source === 'feed' ? `${added} ${FEED_ONLY_NOTE}` : added;
 	}
 
-	/** Stops the running load or lookup and returns to where it started. */
 	cancel(): void {
-		this.#controller?.abort();
-		this.#controller = null;
-		this.phase = this.#cancelTo;
-		this.progress = { stage: 'films', done: 0, total: 0 };
+		this.#loader.cancel();
 	}
 
-	/** Back to the loaded library from the start screen. */
 	resume(): void {
-		if (this.films.length > 0) this.phase = 'ready';
+		if (this.films.length > 0) this.#loader.phase = 'ready';
 	}
 
-	/** Looks up the films and watchlist entries TMDB did not match again, keeping their order. */
 	async retryLookup(): Promise<void> {
 		const missing = this.films.filter((f) => !f.tmdb);
 		const missingWatch = this.watchlist.filter((f) => !f.tmdb);
-		const controller = this.#begin('ready');
-		this.error = null;
+		const controller = this.#loader.begin('ready');
 		await this.#mergeLookup(controller, missing, missingWatch).catch(() => {});
-		if (controller !== this.#controller) return;
-		this.phase = 'ready';
-		this.#controller = null;
+		this.#loader.finish(controller, 'ready');
 	}
 
-	/** Enriches the unmatched entries and swaps each one for its new lookup. */
 	async #mergeLookup(
 		controller: AbortController,
 		missing: EnrichedFilm[],
@@ -222,14 +193,19 @@ export class Library {
 		const found = await enrichLibrary(
 			missing,
 			missingWatch,
-			this.#reporter(controller),
+			this.#loader.reporter(controller),
 			controller.signal
 		);
-		if (controller !== this.#controller) return;
-		const resolvedFilms = await applyTmdbOverrides(found.films, this.overrides, controller.signal);
-		if (controller !== this.#controller) return;
-		const filmMap = new Map(missing.map((f, i) => [f, resolvedFilms[i]]));
-		const watchMap = new Map(missingWatch.map((f, i) => [f, found.watchlist[i]]));
+		if (!this.#loader.isCurrent(controller)) return;
+		const resolved = await applyTmdbOverrides(
+			found.films,
+			found.watchlist,
+			this.overrides,
+			controller.signal
+		);
+		if (!this.#loader.isCurrent(controller)) return;
+		const filmMap = new Map(missing.map((f, i) => [f, resolved.films[i]]));
+		const watchMap = new Map(missingWatch.map((f, i) => [f, resolved.watchlist[i]]));
 		this.watchlist = this.watchlist.map((f) => watchMap.get(f) ?? f);
 		await this.#setFilms(
 			this.films.map((f) => filmMap.get(f) ?? f),
@@ -237,124 +213,76 @@ export class Library {
 		);
 	}
 
-	/**
-	 * Fetches a user-supplied TMDB movie or TV record and applies it locally to the matching film.
-	 * Persists the override only after TMDB confirms the record exists.
-	 */
+	/** Persists a local TMDB override only after TMDB confirms the record exists. */
 	async setTmdbOverride(
 		uri: string,
-		target: TmdbOverride
+		target: TmdbRef
 	): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
-		let record: EnrichedFilm['tmdb'] = null;
-		try {
-			const fetched = await fetchTypedRecords([target]);
-			record = fetched.get(offersKey(target)) ?? null;
-		} catch (cause) {
-			return {
-				ok: false,
-				error: cause instanceof Error ? cause.message : 'Could not reach TMDB.'
-			};
-		}
-		if (!record) {
-			const kind = target.mediaType === 'tv' ? 'series' : 'movie';
-			return { ok: false, error: `No TMDB ${kind} found for ID ${target.tmdbId}.` };
-		}
-
-		const omdbMap = record.imdbId
-			? await enrichOmdb([record.imdbId]).catch(() => new Map())
-			: new Map();
-		const omdb = record.imdbId ? (omdbMap.get(record.imdbId) ?? null) : null;
-		const key = normalizeOverrideUri(uri);
-
+		const result = await resolveTmdbOverride(target);
+		if (!result.ok) return result;
 		this.overrides = saveOverride(this.overrides, uri, target);
-		this.watchlist = this.watchlist.map((item) =>
-			normalizeOverrideUri(item.uri) === key ? { ...item, tmdb: record } : item
-		);
-		await this.#setFilms(
-			this.films.map((film) =>
-				normalizeOverrideUri(film.uri) === key ? { ...film, tmdb: record, omdb } : film
-			),
-			this.collections
-		);
-		return { ok: true, title: record.title };
+		await this.#applyLocalOverride(uri, result.record, result.omdb);
+		return { ok: true, title: result.record.title };
 	}
 
-	/** Removes a saved local TMDB override and returns the film to unmatched until retried. */
+	/** Removes a saved local TMDB override, returning the film to unmatched until retried. */
 	async clearTmdbOverride(uri: string): Promise<void> {
-		const key = normalizeOverrideUri(uri);
 		this.overrides = removeOverride(this.overrides, uri);
+		await this.#applyLocalOverride(uri, null, null);
+	}
+
+	async #applyLocalOverride(
+		uri: string,
+		tmdb: TmdbMovie | null,
+		omdb: OmdbRatings | null
+	): Promise<void> {
+		const key = normalizeUri(uri);
 		this.watchlist = this.watchlist.map((item) =>
-			normalizeOverrideUri(item.uri) === key ? { ...item, tmdb: null } : item
+			normalizeUri(item.uri) === key ? { ...item, tmdb } : item
 		);
 		await this.#setFilms(
-			this.films.map((film) =>
-				normalizeOverrideUri(film.uri) === key ? { ...film, tmdb: null, omdb: null } : film
-			),
+			this.films.map((film) => (normalizeUri(film.uri) === key ? { ...film, tmdb, omdb } : film)),
 			this.collections
 		);
 	}
 
-	/** Starts a cancellable run that `cancel` returns from to `cancelTo`. */
-	#begin(cancelTo: Phase): AbortController {
-		this.#controller?.abort();
-		const controller = new AbortController();
-		this.#controller = controller;
-		this.#cancelTo = cancelTo;
-		this.phase = 'working';
-		this.progress = { stage: 'films', done: 0, total: 0 };
-		return controller;
-	}
-
-	/** Progress updates that stop once the run is cancelled or superseded. */
-	#reporter(controller: AbortController): (next: Progress) => void {
-		return (next) => {
-			if (controller === this.#controller) this.progress = next;
-		};
-	}
-
-	/** Loads a library, enriches it, and shows it; any failure lands back on the start screen. */
 	async #analyse(source: LibrarySource, load: () => Promise<LetterboxdData>): Promise<void> {
-		const controller = this.#begin('idle');
-		this.loadingSource = source;
-		this.error = null;
+		const controller = this.#loader.begin('idle', source);
 		this.feedNote = null;
 		try {
 			const parsed = await load();
-			if (controller !== this.#controller) return;
+			if (!this.#loader.isCurrent(controller)) return;
 			const library = await enrichLibrary(
 				parsed.films,
 				parsed.watchlist,
-				this.#reporter(controller),
+				this.#loader.reporter(controller),
 				controller.signal
 			);
-			if (controller !== this.#controller) return;
-			const resolvedFilms = await applyTmdbOverrides(
+			if (!this.#loader.isCurrent(controller)) return;
+			const resolved = await applyTmdbOverrides(
 				library.films,
+				library.watchlist,
 				this.overrides,
 				controller.signal
 			);
-			if (controller !== this.#controller) return;
+			if (!this.#loader.isCurrent(controller)) return;
 			this.source = source;
 			this.profile = parsed.profile;
 			this.lists = parsed.lists;
-			this.watchlist = library.watchlist;
-			this.filters = { ...NO_DASHBOARD_FILTERS };
-			await this.#setFilms(resolvedFilms);
-			if (controller !== this.#controller) return;
+			this.watchlist = resolved.watchlist;
+			this.loadId += 1;
+			await this.#setFilms(resolved.films);
+			if (!this.#loader.isCurrent(controller)) return;
 			if (source === 'feed') this.feedNote = FEED_ONLY_NOTE;
-			this.phase = 'ready';
-			this.#controller = null;
+			this.#loader.finish(controller, 'ready');
 		} catch (cause) {
-			if (controller !== this.#controller) return;
-			this.error = cause instanceof Error ? cause.message : String(cause);
-			this.phase = 'idle';
-			this.#controller = null;
+			this.#loader.fail(controller, cause);
 		}
 	}
 
 	async #setFilms(films: EnrichedFilm[], knownCollections: CollectionParts[] = []): Promise<void> {
 		this.films = films;
-		this.collections = await collectionsFor(films, knownCollections);
+		this.collections = (await collectionsFor(films, knownCollections)).collections;
 		if (this.remember) await this.#persist();
 	}
 

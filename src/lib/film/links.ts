@@ -1,4 +1,7 @@
 import { stripDiacritics } from '$lib/text';
+import type { TmdbRef } from '$lib/types';
+
+export const SITE_HOST = 'vizard.sorgend.org';
 
 export type ImageSize = 'w45' | 'w92' | 'w154' | 'w185' | 'w342' | 'w500';
 
@@ -23,7 +26,10 @@ export function imageUrl(path: string | null, size: ImageSize): string | null {
 	return `https://image.tmdb.org/t/p/${size}${path}`;
 }
 
-export const tmdbMovieUrl = (id: number): string => `https://www.themoviedb.org/movie/${id}`;
+export const tmdbUrl = ({ mediaType, tmdbId }: TmdbRef): string =>
+	`https://www.themoviedb.org/${mediaType}/${tmdbId}`;
+
+export const tmdbMovieUrl = (id: number): string => tmdbUrl({ mediaType: 'movie', tmdbId: id });
 
 export const tmdbPersonUrl = (id: number): string => `https://www.themoviedb.org/person/${id}`;
 

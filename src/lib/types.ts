@@ -5,7 +5,7 @@ export interface DiaryEntry {
 	rewatch: boolean;
 }
 
-/** A film from the Letterboxd export, merged across CSVs and keyed by Letterboxd URI. */
+/** A film from the Letterboxd export, merged across CSVs by name and year. */
 export interface Film {
 	uri: string;
 	name: string;
@@ -188,17 +188,26 @@ export type RegionOffers = Record<OfferKind, Provider[]> & {
 	link: string | null;
 };
 
-/** One title sent to /api/providers. */
-export interface ProviderRequestItem {
+/** Typed TMDB identifier; TMDB numbers movies and TV series in separate namespaces. */
+export interface TmdbRef {
 	tmdbId: number;
 	mediaType: 'movie' | 'tv';
 }
 
-/** Key a title's offers are stored under, client and server; TMDB numbers films and series separately. */
-export const offersKey = (item: ProviderRequestItem): string => `${item.mediaType}:${item.tmdbId}`;
+export const tmdbRefKey = (ref: TmdbRef): string => `${ref.mediaType}:${ref.tmdbId}`;
 
 /** TMDB ids are positive; TheTVDB records are stored under negative ids, which TMDB never knows. */
 export const isTmdbId = (id: number): boolean => id > 0;
+
+export function isTmdbRef(value: unknown): value is TmdbRef {
+	if (!value || typeof value !== 'object') return false;
+	const item = value as Partial<TmdbRef>;
+	return (
+		(item.mediaType === 'movie' || item.mediaType === 'tv') &&
+		Number.isInteger(item.tmdbId) &&
+		isTmdbId(item.tmdbId as number)
+	);
+}
 
 /** TMDB ids of the items matched to a real TMDB record, skipping TheTVDB-only ones. */
 export function tmdbIdsOf(items: { tmdb: TmdbMovie | null }[]): number[] {

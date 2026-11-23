@@ -1,5 +1,6 @@
 import { unzipSync } from 'fflate';
 import Papa from 'papaparse';
+import { filmKey } from '$lib/film/identity';
 import { getOrCreate } from '$lib/maps';
 import type {
 	CustomList,
@@ -9,7 +10,7 @@ import type {
 	Profile,
 	WatchlistEntry
 } from '$lib/types';
-import { blankFilm, filmKey } from './film';
+import { blankFilm } from './film';
 
 type Row = Record<string, string>;
 
@@ -23,8 +24,6 @@ function toInt(value: string | undefined): number | null {
 	const parsed = Number.parseInt(value ?? '', 10);
 	return Number.isFinite(parsed) ? parsed : null;
 }
-
-const toYear = toInt;
 
 function humanizeSlug(slug: string): string {
 	const words = slug.replace(/[-_]+/g, ' ').trim();
@@ -100,7 +99,7 @@ function parseListCsv(id: string, bytes: Uint8Array): CustomList | null {
 			items.push({
 				position: toInt(readItem(row, 'Position')),
 				name,
-				year: toYear(readItem(row, 'Year')),
+				year: toInt(readItem(row, 'Year')),
 				uri: readItem(row, 'URL', 'Letterboxd URI'),
 				description: readItem(row, 'Description')
 			});
@@ -135,7 +134,7 @@ function parseLists(entries: Record<string, Uint8Array>, prefix: string): Custom
 }
 
 /**
- * Parses a Letterboxd data-export zip into one film list keyed by Letterboxd URI.
+ * Parses a Letterboxd data-export zip into one film list merged across CSVs by name and year.
  * Handles zips with the CSVs at the root as well as inside a single top-level folder.
  */
 export function parseExport(zipBytes: Uint8Array): LetterboxdData {
@@ -156,7 +155,7 @@ export function parseExport(zipBytes: Uint8Array): LetterboxdData {
 
 	const films = new Map<string, Film>();
 	const get = (row: Row): Film => {
-		const year = toYear(row['Year']);
+		const year = toInt(row['Year']);
 		return getOrCreate(films, filmKey(row['Name'], year), () =>
 			blankFilm({ uri: row['Letterboxd URI'], name: row['Name'], year })
 		);
@@ -177,7 +176,13 @@ export function parseExport(zipBytes: Uint8Array): LetterboxdData {
 		film.watchedDates.push(date);
 		film.entries.push({ date, rating: Number.isFinite(rating) ? rating : null, rewatch });
 		if (rewatch) film.rewatch = true;
-		if (row['Tags']) film.tags.push(...row['Tags'].split(',').map((t) => t.trim()));
+		if (row['Tags'])
+			film.tags.push(
+				...row['Tags']
+					.split(',')
+					.map((t) => t.trim())
+					.filter(Boolean)
+			);
 	}
 	for (const row of csv('reviews.csv')) {
 		if (row['Review']) get(row).review = row['Review'];
@@ -186,7 +191,7 @@ export function parseExport(zipBytes: Uint8Array): LetterboxdData {
 	const watchlist: WatchlistEntry[] = csv('watchlist.csv').map((row) => ({
 		uri: row['Letterboxd URI'],
 		name: row['Name'],
-		year: toYear(row['Year']),
+		year: toInt(row['Year']),
 		added: row['Date'] || null
 	}));
 
