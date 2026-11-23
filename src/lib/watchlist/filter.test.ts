@@ -131,6 +131,31 @@ describe('sortWatchlist', () => {
 		const sorted = sortWatchlist(all, 'colour', 0, (film) => swatches[film.name]);
 		expect(names(sorted)).toEqual(['Stalker', 'Heat', 'Paddington']);
 	});
+
+	it('orders by taste score descending, then TMDB rating and title for unmatched films', () => {
+		const unmatched: WatchlistFilm = {
+			uri: 'https://boxd.it/Zed',
+			name: 'Zed',
+			year: null,
+			added: null,
+			tmdb: null
+		};
+		const highRated = entry('HighRated', { voteAverage: 8.4 });
+		const lowRated = entry('LowRated', { voteAverage: 6.1 });
+		const scores: Record<string, { score: number; reason: string }> = {
+			Stalker: { score: 0.65, reason: 'Director Tarkovsky' },
+			Paddington: { score: 0.25, reason: 'keywords: bear' },
+			HighRated: { score: 0, reason: '' }
+		};
+		const sorted = sortWatchlist(
+			[unmatched, lowRated, highRated, paddington, stalker],
+			'taste',
+			0,
+			() => undefined,
+			(film) => scores[film.name] ?? null
+		);
+		expect(names(sorted)).toEqual(['Stalker', 'Paddington', 'HighRated', 'LowRated', 'Zed']);
+	});
 });
 
 describe('serviceCounts', () => {

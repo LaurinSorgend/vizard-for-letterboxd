@@ -2,20 +2,23 @@
 	import { imageUrl } from '$lib/film/links';
 	import PosterGrid from '$lib/posters/PosterGrid.svelte';
 	import { releaseYear } from '$lib/film/release';
-	import { posterOf, streamingOn, type OffersOf } from './filter';
+	import { posterOf, streamingOn, type OffersOf, type TasteOf } from './filter';
 	import type { Provider, WatchlistFilm } from '$lib/types';
 
 	let {
 		films,
 		offersOf,
 		services,
-		showLogos
+		showLogos,
+		tasteOf
 	}: {
 		films: WatchlistFilm[];
 		offersOf: OffersOf;
 		/** Picked services, shown first on each poster. */
 		services: number[];
 		showLogos: boolean;
+		/** Taste match lookup when sorted by taste, appended to poster labels and tooltips. */
+		tasteOf?: TasteOf;
 	} = $props();
 
 	const PAGE = 240;
@@ -30,7 +33,9 @@
 	function label(film: WatchlistFilm, on: Provider[]): string {
 		const year = releaseYear(film);
 		const where = on.length > 0 ? `, streaming on ${on.map((p) => p.name).join(', ')}` : '';
-		return `${film.name}${year ? ` (${year})` : ''}${where}`;
+		const reason = tasteOf?.(film)?.reason;
+		const why = reason ? ` — ${reason}` : '';
+		return `${film.name}${year ? ` (${year})` : ''}${where}${why}`;
 	}
 </script>
 

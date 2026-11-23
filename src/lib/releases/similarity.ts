@@ -34,11 +34,15 @@ export interface TasteProfile {
 	collections: Set<number>;
 }
 
-/** An upcoming film with its similarity score and a short reason. */
-interface ScoredFilm {
-	record: TmdbMovie;
+/** Similarity score and short explanation for one film against a taste profile. */
+export interface TasteMatch {
 	score: number;
 	reason: string;
+}
+
+/** An upcoming film with its similarity score and a short reason. */
+interface ScoredFilm extends TasteMatch {
+	record: TmdbMovie;
 }
 
 interface Tally<K> {
@@ -251,6 +255,22 @@ function reasonFor(c: Components): string {
 	return parts.join(' · ');
 }
 
+/** True when the profile holds at least one director, cast, keyword, or series affinity. */
+export function hasTasteSignals(profile: TasteProfile): boolean {
+	return (
+		profile.directors.size > 0 ||
+		profile.cast.size > 0 ||
+		profile.keywords.size > 0 ||
+		profile.collections.size > 0
+	);
+}
+
+/** Scores a single film against the profile without cast-count, threshold, or count cutoffs. */
+export function scoreFilm(profile: TasteProfile, record: TmdbMovie): TasteMatch {
+	const c = components(profile, record);
+	return { score: combine(c), reason: reasonFor(c) };
+}
+
 const isCandidate = (record: TmdbMovie): boolean =>
 	record.directors.length > 0 && record.cast.length >= MIN_CANDIDATE_CAST;
 
@@ -258,10 +278,7 @@ const isCandidate = (record: TmdbMovie): boolean =>
 export function scoreUpcoming(profile: TasteProfile, records: TmdbMovie[]): ScoredFilm[] {
 	return records
 		.filter(isCandidate)
-		.map((record) => {
-			const c = components(profile, record);
-			return { record, score: combine(c), reason: reasonFor(c) };
-		})
+		.map((record) => ({ record, ...scoreFilm(profile, record) }))
 		.filter((s) => s.score >= THRESHOLD)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, MAX_RESULTS);

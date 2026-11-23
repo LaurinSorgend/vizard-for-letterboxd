@@ -5,6 +5,7 @@ import { hashString, seeded } from '$lib/random';
 import { compareSpectrum, type Swatch } from '$lib/posters/colors';
 import { posterUrl } from '$lib/posters/posters';
 import { releaseYear } from '$lib/film/release';
+import type { TasteMatch } from '$lib/releases/similarity';
 import type { OfferKind, Provider, RegionOffers, WatchlistFilm } from '$lib/types';
 
 /** What a film's offers in the chosen country must include to stay in view. */
@@ -21,6 +22,8 @@ export const AVAILABILITY_OPTIONS: { value: Availability; label: string }[] = [
 export const SORT_OPTIONS = [
 	{ value: 'added-desc', label: 'Recently added' },
 	{ value: 'added-asc', label: 'Added longest ago' },
+	/** Offered once the viewer has rated or liked films to build a taste profile from. */
+	{ value: 'taste', label: 'Best match for your taste', needsTaste: true },
 	{ value: 'release-desc', label: 'Newest release' },
 	{ value: 'release-asc', label: 'Oldest release' },
 	{ value: 'rating', label: 'TMDB rating' },
@@ -37,6 +40,9 @@ export type WatchSort = (typeof SORT_OPTIONS)[number]['value'];
 
 /** A film's poster swatch, or undefined while it has not been read. */
 export type SwatchOf = (film: WatchlistFilm) => Swatch | undefined;
+
+/** A film's similarity match against the viewer's favourites, or null when unscored. */
+export type TasteOf = (film: WatchlistFilm) => TasteMatch | null;
 
 /** The poster the wall and the pick show, which is also the image the colour sort reads. */
 export const posterOf = (film: WatchlistFilm): string | null => posterUrl(film.tmdb, 'w185');
@@ -177,18 +183,29 @@ function addedKey(film: WatchlistFilm): number | null {
 	return film.added ? Date.parse(film.added) : null;
 }
 
-function comparator(sort: WatchSort, seed: number, swatchOf: SwatchOf) {
+const byVoteDesc = byNumber((f) => f.tmdb?.voteAverage, true);
+
+function compareTaste(a: WatchlistFilm, b: WatchlistFilm, tasteOf: TasteOf): number {
+	const scoreA = Math.max(0, tasteOf(a)?.score ?? 0);
+	const scoreB = Math.max(0, tasteOf(b)?.score ?? 0);
+	if (scoreA !== scoreB) return scoreB - scoreA;
+	return byVoteDesc(a, b);
+}
+
+function comparator(sort: WatchSort, seed: number, swatchOf: SwatchOf, tasteOf: TasteOf) {
 	switch (sort) {
 		case 'added-desc':
 			return byNumber(addedKey, true);
 		case 'added-asc':
 			return byNumber(addedKey, false);
+		case 'taste':
+			return (a: WatchlistFilm, b: WatchlistFilm) => compareTaste(a, b, tasteOf);
 		case 'release-desc':
 			return byNumber(releaseKey, true);
 		case 'release-asc':
 			return byNumber(releaseKey, false);
 		case 'rating':
-			return byNumber((f) => f.tmdb?.voteAverage, true);
+			return byVoteDesc;
 		case 'popularity':
 			return byNumber((f) => f.tmdb?.voteCount, true);
 		case 'runtime-asc':
@@ -209,9 +226,10 @@ export function sortWatchlist(
 	films: WatchlistFilm[],
 	sort: WatchSort,
 	seed = 0,
-	swatchOf: SwatchOf = () => undefined
+	swatchOf: SwatchOf = () => undefined,
+	tasteOf: TasteOf = () => null
 ): WatchlistFilm[] {
-	const compare = comparator(sort, seed, swatchOf);
+	const compare = comparator(sort, seed, swatchOf, tasteOf);
 	return [...films].sort((a, b) => compare(a, b) || a.name.localeCompare(b.name));
 }
 

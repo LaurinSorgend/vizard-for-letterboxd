@@ -23,25 +23,34 @@
 		sortWatchlist,
 		type OffersOf,
 		type SwatchOf,
+		type TasteOf,
 		type WatchFilters,
 		type WatchSort
 	} from './filter';
+	import {
+		buildTasteProfile,
+		hasTasteSignals,
+		scoreFilm,
+		type TasteMatch
+	} from '$lib/releases/similarity';
 	import { PosterPalette } from '$lib/posters/palette.svelte';
 	import { region as watchRegion } from '$lib/region/region.svelte';
 	import { loadServices, saveServices } from './services';
+	import { watchlistSummary } from './summary';
+	import WatchlistSummary from './WatchlistSummary.svelte';
 	import WatchlistControls from './WatchlistControls.svelte';
 	import WatchlistFacets from './WatchlistFacets.svelte';
 	import ServicePicker from './ServicePicker.svelte';
 	import PosterWall from './PosterWall.svelte';
 	import RandomPick from './RandomPick.svelte';
-	import type { WatchlistFilm } from '$lib/types';
+	import type { EnrichedFilm, WatchlistFilm } from '$lib/types';
 
-	let { watchlist }: { watchlist: WatchlistFilm[] } = $props();
+	let { watchlist, films = [] }: { watchlist: WatchlistFilm[]; films?: EnrichedFilm[] } = $props();
 
 	const region = $derived(watchRegion.code);
 	const lookup = $derived(lookupFor(region));
 	let filters: WatchFilters = $state({ ...NO_FILTERS, services: loadServices(watchRegion.code) });
-	let sort: WatchSort = $state('added-desc');
+	let sort = $state<WatchSort>('added-desc');
 	let seed = $state(0);
 	let showLogos = $state(true);
 	const palette = new PosterPalette();
@@ -56,9 +65,25 @@
 	const loading = $derived(lookup.loading);
 	const unresolved = $derived(lookup.unresolved(titles));
 	const counts = $derived(serviceCounts(watchlist, offersOf));
+	const summary = $derived(watchlistSummary(watchlist, offersOf, filters.services, loading));
+	const tasteProfile = $derived(buildTasteProfile(films));
+	const hasTaste = $derived(hasTasteSignals(tasteProfile));
+	const tasteByUri = $derived.by(() => {
+		const matches = new Map<string, TasteMatch>();
+		if (!hasTaste) return matches;
+		for (const film of watchlist) {
+			if (film.tmdb) matches.set(film.uri, scoreFilm(tasteProfile, film.tmdb));
+		}
+		return matches;
+	});
+	const tasteOf: TasteOf = (film) => tasteByUri.get(film.uri) ?? null;
+
 	const filtered = $derived(filterWatchlist(watchlist, filters, offersOf));
 	const swatchOf: SwatchOf = (film) => palette.swatchOf(posterOf(film));
-	const shown = $derived(sortWatchlist(filtered, sort, seed, swatchOf));
+	const shown = $derived(sortWatchlist(filtered, sort, seed, swatchOf, tasteOf));
+	const tasteMatched = $derived(
+		sort === 'taste' ? shown.filter((f) => (tasteOf(f)?.score ?? 0) > 0).length : 0
+	);
 
 	followLookup(
 		() => lookup,
@@ -80,6 +105,9 @@
 </script>
 
 <div class="form-controls">
+	{#if watchlist.length > 0}
+		<WatchlistSummary {summary} {region} />
+	{/if}
 	<WatchlistControls
 		bind:filters
 		bind:sort
@@ -88,6 +116,7 @@
 		onreset={reset}
 		{palette}
 		posters={filtered.map(posterOf)}
+		{hasTaste}
 	/>
 	<ServicePicker {counts} {loading} bind:selected={filters.services} />
 	<WatchlistFacets films={watchlist} bind:filters />
@@ -97,6 +126,10 @@
 			Checking where your watchlist streams… {lookup.progress.done} / {lookup.progress.total}
 		{:else}
 			<span data-numeric>{shown.length}</span> of <span data-numeric>{watchlist.length}</span> films
+			{#if sort === 'taste' && hasTaste}
+				· <span data-numeric>{tasteMatched}</span>
+				{tasteMatched === 1 ? 'film matches' : 'films match'} your favourites
+			{/if}
 			{#if unresolved > 0}
 				· Could not check where <span data-numeric>{unresolved}</span>
 				{unresolved === 1 ? 'film streams' : 'films stream'}, so the availability filters leave
@@ -106,7 +139,13 @@
 	</p>
 
 	<RandomPick films={shown} {offersOf} {loading} />
-	<PosterWall films={shown} {offersOf} services={filters.services} {showLogos} />
+	<PosterWall
+		films={shown}
+		{offersOf}
+		services={filters.services}
+		{showLogos}
+		tasteOf={sort === 'taste' ? tasteOf : undefined}
+	/>
 
 	<p class="credit">
 		Streaming availability from <a href="https://www.justwatch.com">JustWatch</a>, via TMDB.

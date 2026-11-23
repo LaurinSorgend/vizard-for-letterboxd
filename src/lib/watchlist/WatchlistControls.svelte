@@ -11,7 +11,8 @@
 		onshuffle,
 		onreset,
 		palette,
-		posters
+		posters,
+		hasTaste = false
 	}: {
 		filters: WatchFilters;
 		sort: WatchSort;
@@ -21,6 +22,8 @@
 		palette: PosterPalette;
 		/** Posters the colour sort would read. */
 		posters: (string | null)[];
+		/** True when the viewer's library has enough favourite signals for taste sorting. */
+		hasTaste?: boolean;
 	} = $props();
 </script>
 
@@ -44,9 +47,11 @@
 			{#each SORT_OPTIONS as option (option.value)}
 				<option
 					value={option.value}
-					disabled={'needsPalette' in option && option.needsPalette && !palette.ready}
-					>{option.label}</option
+					disabled={('needsPalette' in option && option.needsPalette && !palette.ready) ||
+						('needsTaste' in option && option.needsTaste && !hasTaste)}
 				>
+					{option.label}
+				</option>
 			{/each}
 		</select>
 	</label>

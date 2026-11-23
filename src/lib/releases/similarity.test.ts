@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { film, tmdb } from '$lib/testing/fixtures';
 import type { EnrichedFilm, Person, TmdbMovie } from '$lib/types';
-import { buildTasteProfile, scoreUpcoming, topPeople, type TasteProfile } from './similarity';
+import {
+	buildTasteProfile,
+	hasTasteSignals,
+	scoreFilm,
+	scoreUpcoming,
+	topPeople,
+	type TasteProfile
+} from './similarity';
 
 const person = (tmdbId: number, name = `Person ${tmdbId}`): Person => ({
 	name,
@@ -60,6 +67,53 @@ describe('buildTasteProfile', () => {
 			...filler(17)
 		]);
 		expect([...profile.keywords.keys()]).toEqual(['heist']);
+	});
+});
+
+describe('hasTasteSignals', () => {
+	it('is false when every affinity collection is empty', () => {
+		expect(hasTasteSignals(emptyProfile())).toBe(false);
+	});
+
+	it('is true when any one of directors, cast, keywords, or collections is populated', () => {
+		expect(hasTasteSignals({ ...emptyProfile(), directors: new Map([[1, 0.5]]) })).toBe(true);
+		expect(hasTasteSignals({ ...emptyProfile(), cast: new Map([[1, 0.5]]) })).toBe(true);
+		expect(hasTasteSignals({ ...emptyProfile(), keywords: new Map([['heist', 0.5]]) })).toBe(true);
+		expect(hasTasteSignals({ ...emptyProfile(), collections: new Set([10]) })).toBe(true);
+	});
+});
+
+describe('scoreFilm', () => {
+	it('returns zero and an empty reason when nothing matches', () => {
+		const profile = buildTasteProfile([fav({ directors: [person(1)] })]);
+		expect(scoreFilm(profile, candidate({ directors: [person(99, 'Other')] }))).toEqual({
+			score: 0,
+			reason: ''
+		});
+	});
+
+	it('scores films without cast-count or threshold cutoffs', () => {
+		const profile = { ...emptyProfile(), cast: new Map([[501, 0.2]]) };
+		const thin = candidate({ directors: [], cast: [person(501, 'Bea')] });
+		const match = scoreFilm(profile, thin);
+		expect(match.score).toBeGreaterThan(0);
+		expect(match.score).toBeLessThan(0.15);
+		expect(match.reason).toBe('cast Bea');
+	});
+
+	it('combines matching director, cast, keywords and collection into score and reason', () => {
+		const shared = {
+			directors: [person(1, 'Ada')],
+			cast: [person(501, 'Bea'), person(502, 'Cal')],
+			keywords: ['heist'],
+			collection: { id: 77, name: 'Saga', posterPath: null }
+		};
+		const profile = buildTasteProfile([fav(shared), fav(shared), ...filler(18)]);
+		const match = scoreFilm(profile, candidate(shared));
+		expect(match.score).toBeGreaterThan(0.5);
+		expect(match.reason).toBe(
+			'Director Ada · cast Bea, Cal · keywords: heist · same series as a favourite'
+		);
 	});
 });
 
