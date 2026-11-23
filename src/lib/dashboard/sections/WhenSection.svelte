@@ -19,7 +19,7 @@
 	let seasonScale: SeasonScale = $state('genre');
 	let chosenYear: number | null = $state(null);
 
-	const dayBuckets = $derived(bucketsByDay(library.films));
+	const dayBuckets = $derived(bucketsByDay(library.filteredFilms));
 	const years = $derived(diaryYears(dayBuckets));
 	const dailyYear = $derived(
 		chosenYear !== null && years.includes(chosenYear)
@@ -28,7 +28,7 @@
 	);
 	const dailyHeatmap = $derived(buildDailyHeatmap(dayBuckets, dailyYear));
 	const weeklyHeatmap = $derived(buildWeeklyHeatmap(dayBuckets));
-	const seasonalHeatmap = $derived(buildSeasonalHeatmap(library.films, seasonScale));
+	const seasonalHeatmap = $derived(buildSeasonalHeatmap(library.filteredFilms, seasonScale));
 </script>
 
 <Section id="when" title="When you watch">

@@ -6,7 +6,7 @@
 
 	const library = getLibrary();
 
-	const recent = $derived(recentWatches(library.films));
+	const recent = $derived(recentWatches(library.filteredFilms));
 </script>
 
 {#if recent.length > 0}

@@ -9,7 +9,7 @@
 	const library = getLibrary();
 
 	const tiles = $derived.by(() => {
-		const films = library.films;
+		const films = library.filteredFilms;
 		const hours = Math.round(totalRuntimeMinutes(films) / 60);
 		const countries = new Set(films.flatMap((f) => (f.tmdb ? effectiveCountries(f.tmdb) : [])));
 		return [

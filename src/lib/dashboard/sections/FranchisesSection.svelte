@@ -14,7 +14,7 @@
 
 	let sort: FranchiseSort = $state('count');
 
-	const base = $derived(franchiseProgress(library.films, library.collections, 'count'));
+	const base = $derived(franchiseProgress(library.filteredFilms, library.collections, 'count'));
 	const hasTotals = $derived(base.some((f) => f.total !== null));
 	const hasRatings = $derived(base.some((f) => f.avg !== null));
 	const sortOptions = $derived([
@@ -28,9 +28,9 @@
 	const franchises = $derived(
 		activeSort === 'count'
 			? base
-			: franchiseProgress(library.films, library.collections, activeSort)
+			: franchiseProgress(library.filteredFilms, library.collections, activeSort)
 	);
-	const share = $derived(collectionShare(library.films));
+	const share = $derived(collectionShare(library.filteredFilms));
 	const completed = $derived(completedFranchiseCount(franchises));
 </script>
 

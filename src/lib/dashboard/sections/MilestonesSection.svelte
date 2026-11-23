@@ -6,7 +6,7 @@
 
 	const library = getLibrary();
 
-	const milestones = $derived(buildMilestones(library.films));
+	const milestones = $derived(buildMilestones(library.filteredFilms));
 </script>
 
 {#if milestones.length > 0}

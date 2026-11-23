@@ -7,5 +7,5 @@
 </script>
 
 <Section id="length" title="Does length buy quality?" nav="Length vs. rating">
-	<Scatter films={library.films} />
+	<Scatter films={library.filteredFilms} />
 </Section>

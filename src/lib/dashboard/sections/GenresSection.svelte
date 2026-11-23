@@ -11,12 +11,15 @@
 	<div class="pair">
 		<div>
 			<h3>Genres</h3>
-			<RankedBars data={byGenre(library.films)} description="Films and average rating per genre" />
+			<RankedBars
+				data={byGenre(library.filteredFilms)}
+				description="Films and average rating per genre"
+			/>
 		</div>
 		<div>
 			<h3>Original language</h3>
 			<RankedBars
-				data={byLanguage(library.films)}
+				data={byLanguage(library.filteredFilms)}
 				description="Films and average rating per language"
 			/>
 		</div>

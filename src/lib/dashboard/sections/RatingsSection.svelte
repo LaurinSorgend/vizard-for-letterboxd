@@ -7,7 +7,7 @@
 
 	const library = getLibrary();
 
-	const films = $derived(library.films);
+	const films = $derived(library.filteredFilms);
 	const liked = $derived(likedCount(films));
 </script>
 

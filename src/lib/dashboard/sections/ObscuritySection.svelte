@@ -9,7 +9,7 @@
 
 	const library = getLibrary();
 
-	const obscure = $derived(obscurityShare(library.films));
+	const obscure = $derived(obscurityShare(library.filteredFilms));
 </script>
 
 <Section id="obscurity" title="Crowds & deep cuts">
@@ -19,7 +19,7 @@
 		</p>
 	{/if}
 	<RankedBars
-		data={audienceBands(library.films)}
+		data={audienceBands(library.filteredFilms)}
 		description="Films and average rating per combined TMDB + IMDb vote-count band"
 	/>
 </Section>

@@ -11,11 +11,14 @@
 	<div class="pair">
 		<div>
 			<h3>Watches per year (diary)</h3>
-			<Columns data={watchesPerYear(library.films)} description="Diary entries per year" />
+			<Columns data={watchesPerYear(library.filteredFilms)} description="Diary entries per year" />
 		</div>
 		<div>
 			<h3>Films by release decade</h3>
-			<Columns data={releaseDecades(library.films)} description="Films per release decade" />
+			<Columns
+				data={releaseDecades(library.filteredFilms)}
+				description="Films per release decade"
+			/>
 		</div>
 	</div>
 </Section>

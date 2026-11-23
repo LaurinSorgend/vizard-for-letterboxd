@@ -7,5 +7,5 @@
 </script>
 
 <Section id="mosaic" title="Every film you have watched" nav="All films">
-	<Mosaic films={library.films} />
+	<Mosaic films={library.filteredFilms} />
 </Section>

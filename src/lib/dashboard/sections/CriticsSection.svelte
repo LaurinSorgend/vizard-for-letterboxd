@@ -8,7 +8,7 @@
 
 	const library = getLibrary();
 
-	const films = $derived(library.films);
+	const films = $derived(library.filteredFilms);
 	const hasOmdb = $derived(films.some((f) => f.omdb));
 </script>
 

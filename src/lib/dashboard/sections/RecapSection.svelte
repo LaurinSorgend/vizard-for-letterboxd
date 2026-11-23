@@ -6,13 +6,13 @@
 	import Section from '../Section.svelte';
 
 	const library = getLibrary();
-	const years = $derived(recapYears(library.films, new Date()));
+	const years = $derived(recapYears(library.filteredFilms, new Date()));
 </script>
 
 {#if years.length > 0}
 	<Section id="recap" title={LABELS.title}>
 		<YearRecap
-			films={library.films}
+			films={library.filteredFilms}
 			{years}
 			watchlist={library.watchlist}
 			collections={library.collections}

@@ -22,7 +22,7 @@
 
 	$effect(() => {
 		attempt;
-		const films = library.films;
+		const films = library.filteredFilms;
 		const exclude = library.recommendExclude;
 		const genres = favoriteGenres(films, GENRE_ROWS);
 		const seedSets = [

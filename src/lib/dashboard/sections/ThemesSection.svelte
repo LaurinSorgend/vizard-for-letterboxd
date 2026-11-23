@@ -9,7 +9,7 @@
 	const library = getLibrary();
 
 	let keywordView = $state<'cloud' | 'bars'>('cloud');
-	const themes = $derived(byKeyword(library.films));
+	const themes = $derived(byKeyword(library.filteredFilms));
 </script>
 
 {#if themes.length > 0}

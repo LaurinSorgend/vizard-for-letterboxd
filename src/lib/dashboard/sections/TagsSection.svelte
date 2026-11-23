@@ -7,8 +7,8 @@
 
 	const library = getLibrary();
 
-	const tags = $derived(byTag(library.films));
-	const tagged = $derived(taggedFilmCount(library.films));
+	const tags = $derived(byTag(library.filteredFilms));
+	const tagged = $derived(taggedFilmCount(library.filteredFilms));
 </script>
 
 {#if tags.length > 0}

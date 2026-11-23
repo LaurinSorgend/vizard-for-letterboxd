@@ -10,10 +10,17 @@ import {
 	type Progress
 } from '$lib/ingest/pipeline';
 import { FEED_FILM_LIMIT } from '$lib/ingest/rss';
+import {
+	filterDashboardFilms,
+	hasActiveDashboardFilters,
+	NO_DASHBOARD_FILTERS,
+	type DashboardFilters
+} from '$lib/dashboard/filters';
 import { excludedIds } from '$lib/recommend/recommend';
 import { clearSnapshot, loadSnapshot, saveSnapshot, type LibrarySource } from '$lib/store';
 import type {
 	CollectionParts,
+	CustomList,
 	EnrichedFilm,
 	LetterboxdData,
 	Profile,
@@ -40,8 +47,10 @@ export class Library {
 	error = $state<string | null>(null);
 	films = $state.raw<EnrichedFilm[]>([]);
 	watchlist = $state.raw<WatchlistFilm[]>([]);
+	lists = $state.raw<CustomList[]>([]);
 	collections = $state.raw<CollectionParts[]>([]);
 	profile = $state.raw<Profile | null>(null);
+	filters = $state<DashboardFilters>({ ...NO_DASHBOARD_FILTERS });
 	source = $state<LibrarySource>('export');
 	remember = $state(false);
 	saveError = $state<string | null>(null);
@@ -69,6 +78,17 @@ export class Library {
 	/** A feed-only library, or one with a gap the feed cannot fill, is completed by an export. */
 	readonly offersExport = $derived(this.source === 'feed' || this.feedGap);
 	readonly displayName = $derived(this.profile?.givenName || this.profile?.username || null);
+	/** Dashboard films after applying the global filter bar. */
+	readonly filteredFilms = $derived(filterDashboardFilms(this.films, this.filters, this.lists));
+	readonly isFiltered = $derived(hasActiveDashboardFilters(this.filters));
+
+	resetFilters(): void {
+		this.filters = { ...NO_DASHBOARD_FILTERS };
+	}
+
+	setListFilter(listId: string): void {
+		this.filters = { ...this.filters, listId };
+	}
 
 	loadFile(file: File): Promise<void> {
 		return this.#analyse('export', async () =>
@@ -87,8 +107,10 @@ export class Library {
 		if (!snapshot) return;
 		this.films = snapshot.films;
 		this.watchlist = snapshot.watchlist;
+		this.lists = snapshot.lists ?? [];
 		this.collections = snapshot.collections;
 		this.profile = snapshot.profile;
+		this.filters = { ...NO_DASHBOARD_FILTERS };
 		this.source = snapshot.source;
 		this.remember = true;
 		this.phase = 'ready';
@@ -217,7 +239,9 @@ export class Library {
 			if (controller !== this.#controller) return;
 			this.source = source;
 			this.profile = parsed.profile;
+			this.lists = parsed.lists;
 			this.watchlist = library.watchlist;
+			this.filters = { ...NO_DASHBOARD_FILTERS };
 			await this.#setFilms(library.films);
 			if (controller !== this.#controller) return;
 			if (source === 'feed') this.feedNote = FEED_ONLY_NOTE;
@@ -238,8 +262,8 @@ export class Library {
 	}
 
 	#persist(): void {
-		const { films, watchlist, profile, collections, source } = this;
-		if (saveSnapshot({ films, watchlist, profile, collections, source })) {
+		const { films, watchlist, lists, profile, collections, source } = this;
+		if (saveSnapshot({ films, watchlist, lists, profile, collections, source })) {
 			this.saveError = null;
 		} else {
 			clearSnapshot();

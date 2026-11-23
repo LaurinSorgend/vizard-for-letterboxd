@@ -12,7 +12,7 @@
 </script>
 
 <Section id="world" title="Your films around the world" nav="World map">
-	<WorldMap films={library.films} {initialMetric} {presetCountry}>
+	<WorldMap films={library.filteredFilms} {initialMetric} {presetCountry}>
 		{#snippet countryDetail(country)}
 			<CountryRec
 				code={country.code}

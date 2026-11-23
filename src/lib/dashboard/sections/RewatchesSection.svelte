@@ -13,9 +13,9 @@
 
 	const library = getLibrary();
 
-	const rewatched = $derived(mostRewatched(library.films));
-	const shifts = $derived(rewatchShifts(library.films));
-	const shiftSummary = $derived(rewatchShiftSummary(library.films));
+	const rewatched = $derived(mostRewatched(library.filteredFilms));
+	const shifts = $derived(rewatchShifts(library.filteredFilms));
+	const shiftSummary = $derived(rewatchShiftSummary(library.filteredFilms));
 	const shiftPaging = pager(
 		() => shifts.length,
 		() => SHIFT_LIMIT

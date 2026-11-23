@@ -7,5 +7,5 @@
 </script>
 
 <Section id="quadrants" title="Popularity vs. your rating" nav="Popularity">
-	<Quadrants films={library.films} />
+	<Quadrants films={library.filteredFilms} />
 </Section>

@@ -7,5 +7,5 @@
 </script>
 
 <Section id="people-timeline" title="Watching them over time" nav="People over time">
-	<PeopleTimeline films={library.films} />
+	<PeopleTimeline films={library.filteredFilms} />
 </Section>

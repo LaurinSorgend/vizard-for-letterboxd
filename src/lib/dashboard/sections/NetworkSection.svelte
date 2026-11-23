@@ -7,5 +7,5 @@
 </script>
 
 <Section id="network" title="How your films connect" nav="Film network">
-	<Network films={library.films} />
+	<Network films={library.filteredFilms} />
 </Section>

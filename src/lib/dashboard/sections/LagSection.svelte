@@ -7,7 +7,7 @@
 
 	const library = getLibrary();
 
-	const medianLag = $derived(medianWatchLag(library.films));
+	const medianLag = $derived(medianWatchLag(library.filteredFilms));
 </script>
 
 <Section id="lag" title="From release to watch" nav="Release to watch">
@@ -17,7 +17,7 @@
 		</p>
 	{/if}
 	<RankedBars
-		data={watchLag(library.films)}
+		data={watchLag(library.filteredFilms)}
 		description="Films and average rating per gap between release and first watch"
 	/>
 </Section>

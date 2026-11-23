@@ -17,7 +17,7 @@
 	let query = $state('');
 	let sort = $state<ReviewSort>('recent');
 
-	const summary = $derived(reviewSummary(library.films));
+	const summary = $derived(reviewSummary(library.filteredFilms));
 	const filtered = $derived(filterReviews(summary.entries, query, sort));
 	const paging = pager(
 		() => filtered.length,

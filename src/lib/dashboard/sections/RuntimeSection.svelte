@@ -9,15 +9,19 @@
 	const library = getLibrary();
 
 	let runtimeScope = $state<'films' | 'all'>('films');
-	const films = $derived(library.films);
+	const films = $derived(library.filteredFilms);
+	const hasMovies = $derived(films.some((f) => !isSeries(f) && !!f.tmdb?.runtime));
 	const hasSeries = $derived(films.some((f) => isSeries(f) && !!f.tmdb?.runtime));
+	const showToggle = $derived(hasMovies && hasSeries);
 	const runtimes = $derived(
-		runtimeBuckets(runtimeScope === 'all' ? films : films.filter((f) => !isSeries(f)))
+		runtimeBuckets(
+			!showToggle || runtimeScope === 'all' ? films : films.filter((f) => !isSeries(f))
+		)
 	);
 </script>
 
 <Section id="runtime" title="How long you watch">
-	{#if hasSeries}
+	{#if showToggle}
 		<MetricToggle
 			name="runtime-scope"
 			label="Runtime scope"
