@@ -3,6 +3,7 @@
 	import { noun } from '$lib/format';
 	import { getLibrary } from '$lib/library.svelte';
 	import { formatTmdbOverride, getOverride, parseTmdbOverride } from '$lib/overrides';
+	import type { EnrichedFilm } from '$lib/types';
 	import FilmLink from '$lib/viz/chart/FilmLink.svelte';
 
 	const library = getLibrary();
@@ -11,7 +12,7 @@
 	const overriddenFilms = $derived.by(() =>
 		library.films
 			.map((film) => {
-				const override = getOverride(library.overrides, film.uri);
+				const override = getOverride(library.overrides, film);
 				return override ? { film, override } : null;
 			})
 			.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -41,8 +42,9 @@
 		rowError = null;
 	}
 
-	async function submitOverride(uri: string, event: SubmitEvent) {
+	async function submitOverride(film: EnrichedFilm, event: SubmitEvent) {
 		event.preventDefault();
+		const uri = film.uri;
 		const target = parseTmdbOverride(draft);
 		if (!target) {
 			rowError = 'Enter a TMDB ID (e.g. 550) or URL (themoviedb.org/movie/… or /tv/…).';
@@ -53,7 +55,7 @@
 		rowError = null;
 		statusMessage = null;
 		try {
-			const result = await library.setTmdbOverride(uri, target);
+			const result = await library.setTmdbOverride(film, target);
 			if (seq !== submitSeq) return;
 			if (!result.ok) {
 				if (editingUri === uri) rowError = result.error;
@@ -70,11 +72,11 @@
 		}
 	}
 
-	async function removeSavedOverride(uri: string, name: string) {
+	async function removeSavedOverride(film: EnrichedFilm) {
 		statusMessage = null;
 		try {
-			await library.clearTmdbOverride(uri);
-			statusMessage = `Removed local TMDB override for "${name}".`;
+			await library.clearTmdbOverride(film);
+			statusMessage = `Removed local TMDB override for "${film.name}".`;
 		} catch (cause) {
 			statusMessage = cause instanceof Error ? cause.message : 'Could not remove override.';
 		}
@@ -132,7 +134,7 @@
 							</div>
 
 							{#if isEditing}
-								<form class="override-form" onsubmit={(e) => submitOverride(film.uri, e)}>
+								<form class="override-form" onsubmit={(e) => submitOverride(film, e)}>
 									<label class="sr-only" for="tmdb-override-input">TMDB ID or URL</label>
 									<input
 										id="tmdb-override-input"
@@ -180,11 +182,7 @@
 										<span class="matched-title">({film.tmdb.title})</span>
 									{/if}
 								</span>
-								<button
-									type="button"
-									class="row-btn"
-									onclick={() => removeSavedOverride(film.uri, film.name)}
-								>
+								<button type="button" class="row-btn" onclick={() => removeSavedOverride(film)}>
 									Remove
 								</button>
 							</li>

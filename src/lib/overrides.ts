@@ -1,4 +1,4 @@
-import { normalizeUri } from '$lib/film/identity';
+import { filmKey, normalizeUri } from '$lib/film/identity';
 import { readPref, removePref, writePref } from '$lib/prefs';
 import { isTmdbId, isTmdbRef, type TmdbRef } from '$lib/types';
 
@@ -48,8 +48,28 @@ export function formatTmdbOverride(override: TmdbRef): string {
 	return `${override.mediaType}/${override.tmdbId}`;
 }
 
-export function getOverride(overrides: OverrideMap, uri: string): TmdbRef | undefined {
-	return overrides[normalizeUri(uri)];
+/** The film an override belongs to. Feeds and exports give different URIs for the same film. */
+export type OverrideSubject = { uri: string; name: string; year: number | null };
+
+const TITLE_PREFIX = 'title:';
+
+/** Source-independent override key, shared by feed and export copies of a film. */
+export function titleKey(subject: Pick<OverrideSubject, 'name' | 'year'>): string {
+	return TITLE_PREFIX + filmKey(subject.name.trim().toLowerCase(), subject.year);
+}
+
+/** Whether two films are the same override subject, by title + year or by URI. */
+export function sameSubject(a: OverrideSubject, b: OverrideSubject): boolean {
+	return titleKey(a) === titleKey(b) || normalizeUri(a.uri) === normalizeUri(b.uri);
+}
+
+/** Looks up by title + year, falling back to the URI key older overrides were saved under. */
+export function getOverride(overrides: OverrideMap, subject: OverrideSubject): TmdbRef | undefined {
+	return overrides[titleKey(subject)] ?? overrides[normalizeUri(subject.uri)];
+}
+
+function normalizeKey(key: string): string {
+	return key.startsWith(TITLE_PREFIX) ? key : normalizeUri(key);
 }
 
 export function loadOverrides(): OverrideMap {
@@ -59,8 +79,8 @@ export function loadOverrides(): OverrideMap {
 		const parsed = JSON.parse(raw) as Record<string, unknown>;
 		if (!parsed || typeof parsed !== 'object') return {};
 		const clean: OverrideMap = {};
-		for (const [uri, target] of Object.entries(parsed)) {
-			if (isTmdbRef(target)) clean[normalizeUri(uri)] = target;
+		for (const [key, target] of Object.entries(parsed)) {
+			if (isTmdbRef(target)) clean[normalizeKey(key)] = target;
 		}
 		return clean;
 	} catch {
@@ -73,17 +93,23 @@ function persistOverrides(overrides: OverrideMap): void {
 	else writePref(STORAGE_KEY, JSON.stringify(overrides));
 }
 
-export function saveOverride(current: OverrideMap, uri: string, target: TmdbRef): OverrideMap {
-	const next = { ...current, [normalizeUri(uri)]: target };
+/** Saves under the title + year key and drops any older URI key for the same film. */
+export function saveOverride(
+	current: OverrideMap,
+	subject: OverrideSubject,
+	target: TmdbRef
+): OverrideMap {
+	const next = { ...current, [titleKey(subject)]: target };
+	delete next[normalizeUri(subject.uri)];
 	persistOverrides(next);
 	return next;
 }
 
-export function removeOverride(current: OverrideMap, uri: string): OverrideMap {
-	const key = normalizeUri(uri);
-	if (!(key in current)) return current;
+export function removeOverride(current: OverrideMap, subject: OverrideSubject): OverrideMap {
+	const keys = [titleKey(subject), normalizeUri(subject.uri)].filter((key) => key in current);
+	if (keys.length === 0) return current;
 	const next = { ...current };
-	delete next[key];
+	for (const key of keys) delete next[key];
 	persistOverrides(next);
 	return next;
 }

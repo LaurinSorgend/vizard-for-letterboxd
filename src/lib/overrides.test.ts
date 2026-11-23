@@ -55,16 +55,37 @@ describe('parseTmdbOverride', () => {
 });
 
 describe('override persistence', () => {
-	it('normalizes URIs on save, lookup, and removal, and clears storage when empty', () => {
+	const exportFilm = { uri: 'https://boxd.it/2a9q', name: 'Chernobyl', year: 2019 };
+	const feedFilm = {
+		uri: 'https://letterboxd.com/film/chernobyl/',
+		name: ' chernobyl ',
+		year: 2019
+	};
+	const target = { mediaType: 'tv', tmdbId: 87108 } as const;
+
+	it('matches the same film across export and feed URIs, and clears storage when empty', () => {
 		const storage = installStorage();
-		const saved = saveOverride({}, ' https://Boxd.it/2a9q/ ', { mediaType: 'tv', tmdbId: 87108 });
-		expect(getOverride(saved, 'https://boxd.it/2a9q')).toEqual({ mediaType: 'tv', tmdbId: 87108 });
-		expect(formatTmdbOverride(getOverride(saved, 'https://boxd.it/2a9q')!)).toBe('tv/87108');
+		const saved = saveOverride({}, feedFilm, target);
+		expect(getOverride(saved, exportFilm)).toEqual(target);
+		expect(formatTmdbOverride(getOverride(saved, exportFilm)!)).toBe('tv/87108');
+		expect(getOverride(saved, { ...exportFilm, year: 2020 })).toBeUndefined();
 		expect(loadOverrides()).toEqual(saved);
 
-		const cleared = removeOverride(saved, 'HTTPS://BOXD.IT/2A9Q');
+		const cleared = removeOverride(saved, exportFilm);
 		expect(cleared).toEqual({});
 		expect(storage.size).toBe(0);
+	});
+
+	it('still reads overrides saved under the old URI key and replaces them on save', () => {
+		installStorage({
+			'vizard:tmdb-overrides': JSON.stringify({ 'https://Boxd.it/2A9Q/': target })
+		});
+		const legacy = loadOverrides();
+		expect(getOverride(legacy, exportFilm)).toEqual(target);
+
+		const resaved = saveOverride(legacy, exportFilm, { mediaType: 'tv', tmdbId: 1 });
+		expect(Object.keys(resaved)).toEqual(['title:chernobyl::2019']);
+		expect(removeOverride(legacy, exportFilm)).toEqual({});
 	});
 
 	it('ignores corrupt JSON and invalid entries when loading overrides', () => {

@@ -135,11 +135,11 @@ export async function applyTmdbOverrides(
 	signal?: AbortSignal
 ): Promise<{ films: EnrichedFilm[]; watchlist: WatchlistFilm[] }> {
 	const filmTargets = films.flatMap((film, index) => {
-		const target = getOverride(overrides, film.uri);
+		const target = getOverride(overrides, film);
 		return target ? [{ index, target }] : [];
 	});
 	const watchTargets = watchlist.flatMap((item, index) => {
-		const target = getOverride(overrides, item.uri);
+		const target = getOverride(overrides, item);
 		return target ? [{ index, target }] : [];
 	});
 	const allTargets = [...filmTargets, ...watchTargets];
