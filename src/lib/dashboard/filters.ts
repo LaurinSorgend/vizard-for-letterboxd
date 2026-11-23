@@ -39,6 +39,62 @@ function inDateWindow(date: string, fromDate: string, toDate: string): boolean {
 	return (!fromDate || trimmed >= fromDate) && (!toDate || trimmed <= toDate);
 }
 
+export interface FilterChip {
+	key: 'dates' | 'mediaType' | 'diaryOnly' | 'tag' | 'heartedOnly' | 'listId';
+	label: string;
+}
+
+/** Formats the active watch-date window into a short self-descriptive label. */
+function dateChipLabel(fromDate: string, toDate: string): string {
+	const match = /^(\d{4})-01-01$/.exec(fromDate);
+	if (match && toDate === `${match[1]}-12-31`) return `Watched: ${match[1]}`;
+	if (fromDate && toDate) return `Watched: ${fromDate} – ${toDate}`;
+	if (fromDate) return `Watched from ${fromDate}`;
+	return `Watched until ${toDate}`;
+}
+
+/** Concise labels for each currently active filter, used in collapsed summary chips. */
+export function activeFilterChips(
+	filters: DashboardFilters,
+	lists: CustomList[] = []
+): FilterChip[] {
+	const chips: FilterChip[] = [];
+	const fromDate = filters.fromDate.trim();
+	const toDate = filters.toDate.trim();
+	if (fromDate || toDate) chips.push({ key: 'dates', label: dateChipLabel(fromDate, toDate) });
+	if (filters.mediaType === 'movie') chips.push({ key: 'mediaType', label: 'Films only' });
+	else if (filters.mediaType === 'tv') chips.push({ key: 'mediaType', label: 'Series only' });
+	if (filters.tag.trim()) chips.push({ key: 'tag', label: `Tag: ${filters.tag.trim()}` });
+	if (filters.listId.trim()) {
+		const list = lists.find((entry) => entry.id === filters.listId.trim());
+		chips.push({ key: 'listId', label: `List: ${list?.name ?? filters.listId.trim()}` });
+	}
+	if (filters.diaryOnly) chips.push({ key: 'diaryOnly', label: 'Diary-logged' });
+	if (filters.heartedOnly) chips.push({ key: 'heartedOnly', label: 'Hearted' });
+	return chips;
+}
+
+/** Returns a copy of `filters` with the given chip's constraint cleared. */
+export function clearFilterChip(
+	filters: DashboardFilters,
+	key: FilterChip['key']
+): DashboardFilters {
+	switch (key) {
+		case 'dates':
+			return { ...filters, fromDate: '', toDate: '' };
+		case 'mediaType':
+			return { ...filters, mediaType: 'all' };
+		case 'diaryOnly':
+			return { ...filters, diaryOnly: false };
+		case 'tag':
+			return { ...filters, tag: '' };
+		case 'heartedOnly':
+			return { ...filters, heartedOnly: false };
+		case 'listId':
+			return { ...filters, listId: '' };
+	}
+}
+
 /** Whether any dashboard filter narrows the library. */
 export function hasActiveDashboardFilters(filters: DashboardFilters): boolean {
 	return (

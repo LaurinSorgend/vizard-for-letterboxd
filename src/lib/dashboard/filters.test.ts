@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { film, tmdb, watched } from '$lib/testing/fixtures';
 import type { CustomList, EnrichedFilm } from '$lib/types';
 import {
+	activeFilterChips,
 	availableTags,
 	availableWatchYears,
+	clearFilterChip,
 	filterDashboardFilms,
 	hasActiveDashboardFilters,
 	NO_DASHBOARD_FILTERS,
@@ -248,5 +250,68 @@ describe('filterDashboardFilms', () => {
 		expect(names(combined)).toEqual(['Stalker']);
 		expect(combined[0].watchedDates).toEqual(['2024-09-20']);
 		expect(combined[0].rewatch).toBe(true);
+	});
+});
+
+describe('activeFilterChips & clearFilterChip', () => {
+	it('builds self-descriptive chips for single year, custom ranges, and flags', () => {
+		const sciFiList = makeList({ id: 'sci-fi', name: 'Sci-Fi Essentials' });
+		expect(activeFilterChips(NO_DASHBOARD_FILTERS)).toEqual([]);
+
+		expect(
+			activeFilterChips(
+				withFilters({
+					fromDate: '2024-01-01',
+					toDate: '2024-12-31',
+					mediaType: 'tv',
+					tag: 'cinema',
+					listId: 'sci-fi',
+					diaryOnly: true,
+					heartedOnly: true
+				}),
+				[sciFiList]
+			)
+		).toEqual([
+			{ key: 'dates', label: 'Watched: 2024' },
+			{ key: 'mediaType', label: 'Series only' },
+			{ key: 'tag', label: 'Tag: cinema' },
+			{ key: 'listId', label: 'List: Sci-Fi Essentials' },
+			{ key: 'diaryOnly', label: 'Diary-logged' },
+			{ key: 'heartedOnly', label: 'Hearted' }
+		]);
+
+		expect(
+			activeFilterChips(withFilters({ fromDate: '2024-03-01', toDate: '2024-06-15' }))
+		).toEqual([{ key: 'dates', label: 'Watched: 2024-03-01 – 2024-06-15' }]);
+
+		expect(activeFilterChips(withFilters({ fromDate: '2024-03-01' }))).toEqual([
+			{ key: 'dates', label: 'Watched from 2024-03-01' }
+		]);
+
+		expect(activeFilterChips(withFilters({ toDate: '2024-06-15' }))).toEqual([
+			{ key: 'dates', label: 'Watched until 2024-06-15' }
+		]);
+	});
+
+	it('clears only the requested filter dimension', () => {
+		const active = withFilters({
+			fromDate: '2024-01-01',
+			toDate: '2024-12-31',
+			heartedOnly: true,
+			tag: 'cinema'
+		});
+		expect(clearFilterChip(active, 'dates')).toEqual({
+			...active,
+			fromDate: '',
+			toDate: ''
+		});
+		expect(clearFilterChip(active, 'heartedOnly')).toEqual({
+			...active,
+			heartedOnly: false
+		});
+		expect(clearFilterChip(active, 'tag')).toEqual({
+			...active,
+			tag: ''
+		});
 	});
 });
