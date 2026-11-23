@@ -202,10 +202,11 @@ export async function collectionsFor(
 		)
 	];
 	if (ids.length === 0) return { collections: [...byId.values()], updated: false };
-	for (const collection of await fetchCollections(ids)) {
+	const fetched = await fetchCollections(ids);
+	for (const collection of fetched) {
 		byId.set(collection.id, collection);
 	}
-	return { collections: [...byId.values()], updated: true };
+	return { collections: [...byId.values()], updated: fetched.length > 0 };
 }
 
 /** Merges a feed into an analysed library, looking up only the films the feed introduced. */
