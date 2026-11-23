@@ -27,8 +27,10 @@
 	import RatingsSection from '$lib/dashboard/sections/RatingsSection.svelte';
 	import RecapSection from '$lib/dashboard/sections/RecapSection.svelte';
 	import RecentSection from '$lib/dashboard/sections/RecentSection.svelte';
+	import ReviewsSection from '$lib/dashboard/sections/ReviewsSection.svelte';
 	import RewatchesSection from '$lib/dashboard/sections/RewatchesSection.svelte';
 	import RuntimeSection from '$lib/dashboard/sections/RuntimeSection.svelte';
+	import TagsSection from '$lib/dashboard/sections/TagsSection.svelte';
 	import ThemesSection from '$lib/dashboard/sections/ThemesSection.svelte';
 	import WhenSection from '$lib/dashboard/sections/WhenSection.svelte';
 	import WorldSection from '$lib/dashboard/sections/WorldSection.svelte';
@@ -212,9 +214,11 @@
 			<RuntimeSection />
 			<LengthSection />
 			<RewatchesSection />
+			<ReviewsSection />
 			<GenresSection />
 			<FranchisesSection />
 			<ThemesSection />
+			<TagsSection />
 			<ObscuritySection />
 			<QuadrantsSection />
 			<PeopleSection />
