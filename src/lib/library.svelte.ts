@@ -1,7 +1,8 @@
 import { createContext } from 'svelte';
 import { noun } from '$lib/format';
-import { fetchFeed } from '$lib/api/endpoints';
+import { enrichOmdb, fetchFeed, fetchTypedRecords } from '$lib/api/endpoints';
 import {
+	applyTmdbOverrides,
 	collectionsFor,
 	enrichLibrary,
 	loadExport,
@@ -16,15 +17,23 @@ import {
 	NO_DASHBOARD_FILTERS,
 	type DashboardFilters
 } from '$lib/dashboard/filters';
+import {
+	loadOverrides,
+	normalizeOverrideUri,
+	removeOverride,
+	saveOverride,
+	type TmdbOverride
+} from '$lib/overrides';
 import { excludedIds } from '$lib/recommend/recommend';
 import { clearSnapshot, loadSnapshot, saveSnapshot, type LibrarySource } from '$lib/store';
-import type {
-	CollectionParts,
-	CustomList,
-	EnrichedFilm,
-	LetterboxdData,
-	Profile,
-	WatchlistFilm
+import {
+	offersKey,
+	type CollectionParts,
+	type CustomList,
+	type EnrichedFilm,
+	type LetterboxdData,
+	type Profile,
+	type WatchlistFilm
 } from '$lib/types';
 
 type Phase = 'idle' | 'working' | 'ready';
@@ -63,8 +72,11 @@ export class Library {
 	loadingSource = $state<LibrarySource>('export');
 	/** The username typed on the start screen; kept when a load fails. */
 	usernameDraft = $state('');
+	/** Local user-supplied TMDB overrides, keyed by normalised Letterboxd URI. */
+	overrides = $state.raw<Record<string, TmdbOverride>>(loadOverrides());
 	#controller: AbortController | null = null;
 	#cancelTo: Phase = 'idle';
+	#saveSeq = 0;
 
 	/** Whether TMDB could not match more than `LOOKUP_FAILURE_SHARE` of the films. */
 	readonly lookupFailed = $derived(
@@ -101,10 +113,10 @@ export class Library {
 		return this.#analyse('feed', () => loadFeed(username));
 	}
 
-	/** Picks up a remembered library, then tops it up from the feed. */
-	restore(): void {
-		const snapshot = loadSnapshot();
-		if (!snapshot) return;
+	/** Picks up a remembered library from IndexedDB, then tops it up from the feed. */
+	async restore(): Promise<void> {
+		const snapshot = await loadSnapshot();
+		if (!snapshot || this.phase !== 'idle') return;
 		this.films = snapshot.films;
 		this.watchlist = snapshot.watchlist;
 		this.lists = snapshot.lists ?? [];
@@ -114,7 +126,26 @@ export class Library {
 		this.source = snapshot.source;
 		this.remember = true;
 		this.phase = 'ready';
+		void this.#refreshMissingCollectionParts();
 		void this.#syncFeed();
+	}
+
+	/** Upgrades restored collections saved before franchise `parts` stubs were stored. */
+	async #refreshMissingCollectionParts(): Promise<void> {
+		const hasLegacy = this.films.some((film) => {
+			const id = film.tmdb?.collection?.id;
+			if (id == null) return false;
+			const entry = this.collections.find((c) => c.id === id);
+			return !entry || !Array.isArray(entry.parts);
+		});
+		if (!hasLegacy) return;
+		try {
+			const next = await collectionsFor(this.films, this.collections);
+			this.collections = next;
+			if (this.remember) void this.#persist();
+		} catch {
+			// Leave existing collection counts intact if refresh fails.
+		}
 	}
 
 	/** Back to the start screen, to load another library. */
@@ -144,9 +175,10 @@ export class Library {
 
 	setRemember(on: boolean): void {
 		this.remember = on;
-		if (on) this.#persist();
+		if (on) void this.#persist();
 		else {
-			clearSnapshot();
+			this.#saveSeq += 1;
+			void clearSnapshot();
 			this.saveError = null;
 		}
 	}
@@ -194,11 +226,70 @@ export class Library {
 			controller.signal
 		);
 		if (controller !== this.#controller) return;
-		const filmMap = new Map(missing.map((f, i) => [f, found.films[i]]));
+		const resolvedFilms = await applyTmdbOverrides(found.films, this.overrides, controller.signal);
+		if (controller !== this.#controller) return;
+		const filmMap = new Map(missing.map((f, i) => [f, resolvedFilms[i]]));
 		const watchMap = new Map(missingWatch.map((f, i) => [f, found.watchlist[i]]));
 		this.watchlist = this.watchlist.map((f) => watchMap.get(f) ?? f);
 		await this.#setFilms(
 			this.films.map((f) => filmMap.get(f) ?? f),
+			this.collections
+		);
+	}
+
+	/**
+	 * Fetches a user-supplied TMDB movie or TV record and applies it locally to the matching film.
+	 * Persists the override only after TMDB confirms the record exists.
+	 */
+	async setTmdbOverride(
+		uri: string,
+		target: TmdbOverride
+	): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
+		let record: EnrichedFilm['tmdb'] = null;
+		try {
+			const fetched = await fetchTypedRecords([target]);
+			record = fetched.get(offersKey(target)) ?? null;
+		} catch (cause) {
+			return {
+				ok: false,
+				error: cause instanceof Error ? cause.message : 'Could not reach TMDB.'
+			};
+		}
+		if (!record) {
+			const kind = target.mediaType === 'tv' ? 'series' : 'movie';
+			return { ok: false, error: `No TMDB ${kind} found for ID ${target.tmdbId}.` };
+		}
+
+		const omdbMap = record.imdbId
+			? await enrichOmdb([record.imdbId]).catch(() => new Map())
+			: new Map();
+		const omdb = record.imdbId ? (omdbMap.get(record.imdbId) ?? null) : null;
+		const key = normalizeOverrideUri(uri);
+
+		this.overrides = saveOverride(this.overrides, uri, target);
+		this.watchlist = this.watchlist.map((item) =>
+			normalizeOverrideUri(item.uri) === key ? { ...item, tmdb: record } : item
+		);
+		await this.#setFilms(
+			this.films.map((film) =>
+				normalizeOverrideUri(film.uri) === key ? { ...film, tmdb: record, omdb } : film
+			),
+			this.collections
+		);
+		return { ok: true, title: record.title };
+	}
+
+	/** Removes a saved local TMDB override and returns the film to unmatched until retried. */
+	async clearTmdbOverride(uri: string): Promise<void> {
+		const key = normalizeOverrideUri(uri);
+		this.overrides = removeOverride(this.overrides, uri);
+		this.watchlist = this.watchlist.map((item) =>
+			normalizeOverrideUri(item.uri) === key ? { ...item, tmdb: null } : item
+		);
+		await this.#setFilms(
+			this.films.map((film) =>
+				normalizeOverrideUri(film.uri) === key ? { ...film, tmdb: null, omdb: null } : film
+			),
 			this.collections
 		);
 	}
@@ -237,12 +328,18 @@ export class Library {
 				controller.signal
 			);
 			if (controller !== this.#controller) return;
+			const resolvedFilms = await applyTmdbOverrides(
+				library.films,
+				this.overrides,
+				controller.signal
+			);
+			if (controller !== this.#controller) return;
 			this.source = source;
 			this.profile = parsed.profile;
 			this.lists = parsed.lists;
 			this.watchlist = library.watchlist;
 			this.filters = { ...NO_DASHBOARD_FILTERS };
-			await this.#setFilms(library.films);
+			await this.#setFilms(resolvedFilms);
 			if (controller !== this.#controller) return;
 			if (source === 'feed') this.feedNote = FEED_ONLY_NOTE;
 			this.phase = 'ready';
@@ -258,18 +355,20 @@ export class Library {
 	async #setFilms(films: EnrichedFilm[], knownCollections: CollectionParts[] = []): Promise<void> {
 		this.films = films;
 		this.collections = await collectionsFor(films, knownCollections);
-		if (this.remember) this.#persist();
+		if (this.remember) await this.#persist();
 	}
 
-	#persist(): void {
+	async #persist(): Promise<void> {
+		const seq = ++this.#saveSeq;
 		const { films, watchlist, lists, profile, collections, source } = this;
-		if (saveSnapshot({ films, watchlist, lists, profile, collections, source })) {
+		const saved = await saveSnapshot({ films, watchlist, lists, profile, collections, source });
+		if (seq !== this.#saveSeq || !this.remember) return;
+		if (saved) {
 			this.saveError = null;
 		} else {
-			clearSnapshot();
+			await clearSnapshot();
 			this.remember = false;
-			this.saveError =
-				'Could not save: your library is too large for this browser. Data stays for this visit only.';
+			this.saveError = 'Could not save to browser storage. Data stays for this visit only.';
 		}
 	}
 }

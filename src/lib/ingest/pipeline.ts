@@ -1,15 +1,23 @@
-import { enrichFilms, enrichOmdb, fetchCollections, fetchFeed } from '$lib/api/endpoints';
+import {
+	enrichFilms,
+	enrichOmdb,
+	fetchCollections,
+	fetchFeed,
+	fetchTypedRecords
+} from '$lib/api/endpoints';
 import { parseExport } from '$lib/ingest/parse';
 import { feedHasGap, mergeFeed } from '$lib/ingest/rss';
-import type {
-	CollectionParts,
-	EnrichedFilm,
-	FeedEntry,
-	Film,
-	LetterboxdData,
-	OmdbRatings,
-	WatchlistEntry,
-	WatchlistFilm
+import { normalizeOverrideUri, type TmdbOverride } from '$lib/overrides';
+import {
+	offersKey,
+	type CollectionParts,
+	type EnrichedFilm,
+	type FeedEntry,
+	type Film,
+	type LetterboxdData,
+	type OmdbRatings,
+	type WatchlistEntry,
+	type WatchlistFilm
 } from '$lib/types';
 import { blankProfile } from './film';
 
@@ -87,37 +95,80 @@ export async function enrichLibrary(
 	};
 }
 
-/** Billed cast kept per watchlist film: enough to search by, light enough for the snapshot. */
-const WATCHLIST_CAST = 5;
-
-/**
- * TMDB records for the watchlist, trimmed of what the watchlist view never reads so a long
- * watchlist doesn't crowd the watched library out of the browser's storage quota.
- */
-async function enrichWatchlist(
+/** TMDB records for the watchlist, keeping full cast and keywords now that snapshots live in IndexedDB. */
+function enrichWatchlist(
 	watchlist: WatchlistEntry[],
 	onProgress: (done: number) => void,
 	signal?: AbortSignal
 ): Promise<WatchlistFilm[]> {
-	const enriched = await enrichFilms(watchlist, onProgress, signal);
-	return enriched.map((film) => ({
-		...film,
-		tmdb: film.tmdb
-			? { ...film.tmdb, cast: film.tmdb.cast.slice(0, WATCHLIST_CAST), keywords: [] }
-			: null
-	}));
+	return enrichFilms(watchlist, onProgress, signal);
 }
 
-/** Franchise sizes for every collection in the library that `known` does not already cover. */
+/** Applies user-saved local TMDB ID overrides to matching films, fetching records and OMDb ratings. */
+export async function applyTmdbOverrides(
+	films: EnrichedFilm[],
+	overrides: Record<string, TmdbOverride>,
+	signal?: AbortSignal
+): Promise<EnrichedFilm[]> {
+	const entries = films
+		.map((film, index) => ({
+			index,
+			target: overrides[normalizeOverrideUri(film.uri)]
+		}))
+		.filter((entry): entry is { index: number; target: TmdbOverride } => Boolean(entry.target));
+	if (entries.length === 0) return films;
+
+	const uniqueTargets = [...new Map(entries.map((e) => [offersKey(e.target), e.target])).values()];
+	const fetched = await fetchTypedRecords(uniqueTargets, undefined, signal).catch(
+		() => new Map<string, EnrichedFilm['tmdb']>()
+	);
+	const imdbIds = [
+		...new Set(
+			[...fetched.values()].map((record) => record?.imdbId).filter((id): id is string => !!id)
+		)
+	];
+	const omdb =
+		imdbIds.length > 0
+			? await enrichOmdb(imdbIds, undefined, signal).catch(
+					() => new Map<string, OmdbRatings | null>()
+				)
+			: new Map<string, OmdbRatings | null>();
+
+	const next = [...films];
+	for (const { index, target } of entries) {
+		const record = fetched.get(offersKey(target));
+		if (!record) continue;
+		const film = next[index];
+		next[index] = {
+			...film,
+			tmdb: record,
+			omdb: record.imdbId ? (omdb.get(record.imdbId) ?? film.omdb) : null
+		};
+	}
+	return next;
+}
+
+/** Franchise sizes and film stubs for every collection in the library that `known` does not already cover with `parts`. */
 export async function collectionsFor(
 	films: EnrichedFilm[],
 	known: CollectionParts[] = []
 ): Promise<CollectionParts[]> {
-	const have = new Set(known.map((c) => c.id));
-	const ids = films
-		.map((film) => film.tmdb?.collection?.id)
-		.filter((id): id is number => id != null && !have.has(id));
-	return [...known, ...(ids.length > 0 ? await fetchCollections(ids) : [])];
+	const byId = new Map<number, CollectionParts>();
+	for (const collection of known) byId.set(collection.id, collection);
+
+	const ids = [
+		...new Set(
+			films
+				.map((film) => film.tmdb?.collection?.id)
+				.filter((id): id is number => id != null && !Array.isArray(byId.get(id)?.parts))
+		)
+	];
+	if (ids.length > 0) {
+		for (const collection of await fetchCollections(ids)) {
+			byId.set(collection.id, collection);
+		}
+	}
+	return [...byId.values()];
 }
 
 /** Merges a feed into an analysed library, looking up only the films the feed introduced. */

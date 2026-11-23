@@ -1,5 +1,12 @@
 import { DAY_MS } from '$lib/math';
-import { isTmdbId, RECORD_SCHEMA, type Collection, type Person, type TmdbMovie } from '$lib/types';
+import {
+	isTmdbId,
+	RECORD_SCHEMA,
+	type Collection,
+	type Person,
+	type ProviderRequestItem,
+	type TmdbMovie
+} from '$lib/types';
 import type { BatchLookup } from './batch';
 import type { FetchBudget } from './budget';
 import { jsonCache, type Cache } from './cache';
@@ -133,3 +140,11 @@ const FRESH_RECORD_MS = 7 * DAY_MS;
 
 /** Full records of TMDB movies by id, refetched once a week old. */
 export const freshMovieRecords = movieLookup(recordCache(FRESH_RECORD_MS));
+
+/** Full records of TMDB movies or series by typed id, refetched once a week old. */
+export const freshTypedRecords: BatchLookup<ProviderRequestItem, string, TmdbMovie> = {
+	keyOf: (item) => (isTmdbId(item.tmdbId) ? recordKey(item) : null),
+	cache: recordCache(FRESH_RECORD_MS),
+	fetchOne: (budget, item) => fetchRecord(budget, item.mediaType, item.tmdbId),
+	label: 'tmdb record'
+};

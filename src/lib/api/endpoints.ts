@@ -72,12 +72,20 @@ export const fetchReleaseDates = batchFetcher<number, number, FilmReleases>({
 	keyOf: (id) => id
 });
 
-/** Full TMDB records, keyed by TMDB id; null where TMDB has none. */
+/** Full TMDB movie records, keyed by TMDB id; null where TMDB has none. */
 export const fetchRecords = batchFetcher<number, number, TmdbMovie>({
 	url: '/api/records',
 	label: 'Record lookup',
 	body: (ids) => ({ ids }),
 	keyOf: (id) => id
+});
+
+/** Full TMDB movie or TV records, keyed by `offersKey`; null where TMDB has none. */
+export const fetchTypedRecords = batchFetcher<ProviderRequestItem, string, TmdbMovie>({
+	url: '/api/records',
+	label: 'Record lookup',
+	body: (items) => ({ items }),
+	keyOf: offersKey
 });
 
 const collectionsFetcher = batchFetcher<number, number, CollectionParts>({

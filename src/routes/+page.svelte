@@ -70,7 +70,7 @@
 			if (response.ok) library.loadFile(new File([await response.blob()], 'demo.zip'));
 			return;
 		}
-		library.restore();
+		void library.restore();
 	});
 </script>
 

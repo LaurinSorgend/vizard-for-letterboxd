@@ -1,33 +1,360 @@
 <script lang="ts">
+	import { webHref } from '$lib/film/links';
+	import { noun } from '$lib/format';
 	import { getLibrary } from '$lib/library.svelte';
+	import {
+		formatTmdbOverride,
+		normalizeOverrideUri,
+		parseTmdbOverride,
+		tmdbOverrideUrl
+	} from '$lib/overrides';
 
 	const library = getLibrary();
 	const unmatched = $derived(library.films.filter((f) => !f.tmdb));
+	const unmatchedWatchlistCount = $derived(library.watchlist.filter((f) => !f.tmdb).length);
+	const overriddenFilms = $derived.by(() =>
+		library.films
+			.map((film) => {
+				const override = library.overrides[normalizeOverrideUri(film.uri)];
+				return override ? { film, override } : null;
+			})
+			.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+	);
+
+	let editingUri = $state<string | null>(null);
+	let draft = $state('');
+	let submittingUri = $state<string | null>(null);
+	let rowError = $state<string | null>(null);
+	let statusMessage = $state<string | null>(null);
+
+	function openEditor(uri: string) {
+		if (editingUri === uri) {
+			closeEditor();
+			return;
+		}
+		editingUri = uri;
+		draft = '';
+		rowError = null;
+		statusMessage = null;
+	}
+
+	function closeEditor() {
+		editingUri = null;
+		draft = '';
+		rowError = null;
+	}
+
+	async function submitOverride(uri: string, event: SubmitEvent) {
+		event.preventDefault();
+		const target = parseTmdbOverride(draft);
+		if (!target) {
+			rowError = 'Enter a TMDB ID (e.g. 550) or URL (themoviedb.org/movie/… or /tv/…).';
+			return;
+		}
+		submittingUri = uri;
+		rowError = null;
+		statusMessage = null;
+		const result = await library.setTmdbOverride(uri, target);
+		submittingUri = null;
+		if (!result.ok) {
+			rowError = result.error;
+			return;
+		}
+		closeEditor();
+		statusMessage = `Matched to "${result.title}" (${formatTmdbOverride(target)}).`;
+	}
+
+	async function removeSavedOverride(uri: string, name: string) {
+		statusMessage = null;
+		await library.clearTmdbOverride(uri);
+		statusMessage = `Removed local TMDB override for "${name}".`;
+	}
 </script>
 
-{#if unmatched.length > 0}
-	<details>
-		<summary>{unmatched.length} films could not be matched on TMDB</summary>
-		<ul>
-			{#each unmatched as film (film.uri)}
-				<li>{film.name} ({film.year ?? 'unknown year'})</li>
-			{/each}
-		</ul>
+{#if unmatched.length > 0 || overriddenFilms.length > 0}
+	<details class="unmatched">
+		<summary>
+			{#if unmatched.length > 0}
+				<span data-numeric>{unmatched.length}</span>
+				{noun(unmatched.length, 'film')} could not be matched on TMDB{#if overriddenFilms.length > 0}{' '}·
+					<span data-numeric>{overriddenFilms.length}</span> manual
+					{noun(overriddenFilms.length, 'match', 'matches')}{/if}
+			{:else}
+				<span data-numeric>{overriddenFilms.length}</span> manual TMDB
+				{noun(overriddenFilms.length, 'match', 'matches')}
+			{/if}
+		</summary>
+
+		<div class="body">
+			{#if statusMessage}
+				<p class="status" role="status">{statusMessage}</p>
+			{/if}
+
+			{#if unmatched.length > 0}
+				<div class="toolbar">
+					<p class="hint">
+						Open a title on Letterboxd to check its TMDB link, retry lookup, or set a TMDB ID
+						locally.
+					</p>
+					<button
+						type="button"
+						class="action"
+						onclick={() => library.retryLookup()}
+						disabled={library.phase === 'working'}
+					>
+						Retry unmatched{#if unmatchedWatchlistCount > 0}{' '}(+{unmatchedWatchlistCount} watchlist){/if}
+					</button>
+				</div>
+
+				<ul class="film-rows">
+					{#each unmatched as film (film.uri)}
+						{@const href = webHref(film.uri)}
+						{@const isEditing = editingUri === film.uri}
+						{@const isBusy = submittingUri === film.uri}
+						<li class="film-row">
+							<div class="row-main">
+								<span class="title-wrap">
+									{#if href}
+										<a {href} target="_blank" rel="noopener">{film.name}</a>
+									{:else}
+										<span>{film.name}</span>
+									{/if}
+									<span class="year" data-numeric>({film.year ?? 'unknown year'})</span>
+								</span>
+								<button
+									type="button"
+									class="row-btn"
+									aria-expanded={isEditing}
+									onclick={() => openEditor(film.uri)}
+								>
+									{isEditing ? 'Close' : 'Set TMDB ID'}
+								</button>
+							</div>
+
+							{#if isEditing}
+								<form class="override-form" onsubmit={(e) => submitOverride(film.uri, e)}>
+									<label class="sr-only" for="tmdb-override-input">TMDB ID or URL</label>
+									<input
+										id="tmdb-override-input"
+										type="text"
+										bind:value={draft}
+										placeholder="TMDB ID or URL (e.g. 550 or tv/1399)"
+										disabled={isBusy}
+										autocomplete="off"
+									/>
+									<button type="submit" class="action" disabled={isBusy}>
+										{isBusy ? 'Matching…' : 'Match'}
+									</button>
+									<button type="button" class="row-btn" onclick={closeEditor} disabled={isBusy}>
+										Cancel
+									</button>
+								</form>
+								{#if rowError}
+									<p class="error" role="alert">{rowError}</p>
+								{/if}
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			{#if overriddenFilms.length > 0}
+				<div class="overrides">
+					<h3>Manual TMDB matches (saved on this device)</h3>
+					<ul class="override-rows">
+						{#each overriddenFilms as { film, override } (film.uri)}
+							{@const href = webHref(film.uri)}
+							<li>
+								<span class="title-wrap">
+									{#if href}
+										<a {href} target="_blank" rel="noopener">{film.name}</a>
+									{:else}
+										<span>{film.name}</span>
+									{/if}
+									<span class="arrow" aria-hidden="true">→</span>
+									<a
+										href={tmdbOverrideUrl(override)}
+										target="_blank"
+										rel="noopener"
+										class="tmdb-ref"
+										data-numeric
+									>
+										{formatTmdbOverride(override)}
+									</a>
+									{#if film.tmdb && film.tmdb.title !== film.name}
+										<span class="matched-title">({film.tmdb.title})</span>
+									{/if}
+								</span>
+								<button
+									type="button"
+									class="row-btn"
+									onclick={() => removeSavedOverride(film.uri, film.name)}
+								>
+									Remove
+								</button>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+		</div>
 	</details>
 {/if}
 
 <style>
+	.unmatched {
+		margin-top: 24px;
+		border-top: 1px solid var(--border);
+		padding-top: 12px;
+	}
 	summary {
 		cursor: pointer;
 		color: var(--fg-secondary);
+		font-size: var(--text-sm);
+		min-height: 24px;
 	}
-	ul {
+	summary:hover {
+		color: var(--fg);
+	}
+	.body {
+		margin-top: 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+	.toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px 16px;
+	}
+	.hint {
+		margin: 0;
+		font-size: var(--text-sm);
 		color: var(--fg-secondary);
-		columns: 2;
 	}
-	@media (max-width: 640px) {
-		ul {
-			columns: 1;
-		}
+	.status {
+		margin: 0;
+		padding: 6px 10px;
+		font-size: var(--text-sm);
+		color: var(--fg);
+		background: var(--bg-secondary);
+		border-left: 2px solid var(--accent);
+	}
+	.action,
+	.row-btn {
+		font: inherit;
+		font-size: var(--text-xs);
+		min-height: 28px;
+		padding: 4px 10px;
+		color: var(--fg);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-strong);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.row-btn {
+		background: transparent;
+		border-color: var(--border);
+		color: var(--fg-secondary);
+	}
+	.action:hover:not(:disabled),
+	.row-btn:hover:not(:disabled) {
+		background: var(--surface);
+		color: var(--fg);
+	}
+	.action:disabled,
+	.row-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.action:focus-visible,
+	.row-btn:focus-visible,
+	input:focus-visible {
+		outline: 2px solid var(--focus);
+		outline-offset: 2px;
+	}
+	.film-rows,
+	.override-rows {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		border-top: 1px solid var(--border);
+	}
+	.film-row,
+	.override-rows li {
+		padding: 6px 0;
+		border-bottom: 1px solid var(--border);
+		font-size: var(--text-sm);
+	}
+	.row-main,
+	.override-rows li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 6px 12px;
+	}
+	.title-wrap {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 6px;
+		min-width: 0;
+	}
+	.title-wrap a {
+		color: var(--accent);
+		text-decoration: none;
+	}
+	.title-wrap a:hover {
+		text-decoration: underline;
+	}
+	.year,
+	.arrow,
+	.matched-title {
+		color: var(--fg-muted);
+	}
+	.tmdb-ref {
+		font-size: var(--text-xs);
+	}
+	.override-form {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
+	}
+	.override-form input {
+		flex: 1 1 240px;
+		min-height: 28px;
+		padding: 4px 8px;
+		font: inherit;
+		font-size: var(--text-sm);
+		color: var(--fg);
+		background: var(--bg);
+		border: 1px solid var(--border-strong);
+	}
+	.error {
+		margin: 6px 0 0;
+		font-size: var(--text-xs);
+		color: var(--error);
+	}
+	.overrides h3 {
+		margin: 8px 0 6px;
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--fg-secondary);
+	}
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>
