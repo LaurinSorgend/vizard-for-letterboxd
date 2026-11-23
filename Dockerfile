@@ -1,10 +1,11 @@
 FROM node:24-slim AS build
 WORKDIR /app
-COPY package*.json .npmrc ./
-RUN npm ci
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile
 COPY . .
-RUN npm run build:node
-RUN npm prune --omit=dev
+RUN pnpm build:node
+RUN pnpm prune --prod
 
 FROM node:24-slim
 WORKDIR /app

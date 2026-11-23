@@ -18,9 +18,9 @@
 
 ## Technical & UX polish
 
-- [ ] Move saved snapshots in `store.ts` from `localStorage` to `IndexedDB` (removes the ~5 MB cap and lets watchlist items keep full cast/keywords)
-- [ ] Fix bar-label overflow and vertical alignment in canvas share cards (`src/lib/wrapped/cards.ts`)
-- [ ] Review date formatting where including the year makes sense
-- [ ] Make `Unmatched` actionable: link each film to Letterboxd, allow retrying unmatched titles at any failure rate, and consider optional local TMDB ID overrides
-- [ ] Keep franchise `parts` stubs in `server/collections.ts` so `FranchisesSection` can list missing films in a series
-- [ ] Clean up lockfile/tooling mismatch (`package-lock.json` alongside `pnpm-lock.yaml`, `README.md` `npm` references)
+- [x] Move saved snapshots in `store.ts` from `localStorage` to `IndexedDB` (removes the ~5 MB cap and lets watchlist items keep full cast/keywords)
+- [x] Fix bar-label overflow and vertical alignment in canvas share cards (`src/lib/wrapped/cards.ts`)
+- [x] Review date formatting where including the year makes sense
+- [x] Make `Unmatched` actionable: link each film to Letterboxd, allow retrying unmatched titles at any failure rate, and consider optional local TMDB ID overrides
+- [x] Keep franchise `parts` stubs in `server/collections.ts` so `FranchisesSection` can list missing films in a series
+- [x] Clean up lockfile/tooling mismatch (`package-lock.json` alongside `pnpm-lock.yaml`, `README.md` `npm` references)

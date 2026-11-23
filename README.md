@@ -33,7 +33,7 @@ a diary entry, tags and the watchlist only come from the export.
 ## Setup
 
 ```sh
-npm install
+pnpm install
 cp .env.example .env   # put your TMDB API key in .env
 ```
 
@@ -65,14 +65,14 @@ The `DEPLOY_TARGET` env var selects how the app is built and where the cache liv
 Node (SQLite, no Cloudflare tooling):
 
 ```sh
-npm run dev:node
+pnpm dev:node
 ```
 
 Or against the Cloudflare D1 emulator (matches production):
 
 ```sh
-npx wrangler d1 execute letterboxed-vizard-db --local --file=schema.sql   # once, and after schema changes
-npm run dev
+pnpm exec wrangler d1 execute letterboxed-vizard-db --local --file=schema.sql   # once, and after schema changes
+pnpm dev
 ```
 
 ## Self-host with Docker
@@ -89,7 +89,7 @@ on the host in `./data` via a bind mount.
 ## Self-host without Docker
 
 ```sh
-npm run build:node
+pnpm build:node
 node build
 ```
 
@@ -101,19 +101,19 @@ The app deploys to Cloudflare Workers, with the TMDB cache in a D1 database.
 At hobby traffic the whole stack fits Cloudflare's free tier. One-time setup:
 
 ```sh
-npx wrangler login
-npx wrangler d1 create letterboxed-vizard-db --jurisdiction eu
+pnpm exec wrangler login
+pnpm exec wrangler d1 create letterboxed-vizard-db --jurisdiction eu
 # paste the printed database_id into wrangler.jsonc
-npx wrangler d1 execute letterboxed-vizard-db --remote --file=schema.sql
-npx wrangler secret put TMDB_API_KEY
-npx wrangler secret put SESSION_SECRET
+pnpm exec wrangler d1 execute letterboxed-vizard-db --remote --file=schema.sql
+pnpm exec wrangler secret put TMDB_API_KEY
+pnpm exec wrangler secret put SESSION_SECRET
 # optional: repeat for TVDB_API_KEY and OMDB_API_KEY
 ```
 
 Then deploy (and redeploy) with:
 
 ```sh
-npm run deploy
+pnpm deploy
 ```
 
 ## Fonts
