@@ -54,8 +54,10 @@
 	const entries = $derived(
 		calendarEntries([...watchlistFilms, ...recommended], lookup.values, region, kinds, from)
 	);
-	const exportable = $derived(entries.filter((entry) => entry.date >= today));
-	const upcoming = $derived(exportable.filter((entry) => !entry.film.recommended));
+	const exportable = $derived(entries);
+	const upcoming = $derived(
+		entries.filter((entry) => entry.date >= today && !entry.film.recommended)
+	);
 	const lastMonth = $derived(entries.length > 0 ? monthKey(entries.at(-1)!.date) : thisMonth);
 	const month = $derived(clampMonth(picked, thisMonth, lastMonth));
 	const nextMonth = $derived(nextReleaseMonth(entries, month));
@@ -83,7 +85,12 @@
 	<div class="controls">
 		<RegionSelect label="Release dates for" />
 		<KindPicker legend="Release types" bind:kinds />
-		<button type="button" onclick={exportCalendar} disabled={exportable.length === 0}>
+		<button
+			type="button"
+			onclick={exportCalendar}
+			disabled={exportable.length === 0}
+			title={exportable.length === 0 ? 'No releases in the calendar to export' : undefined}
+		>
 			Download .ics
 		</button>
 	</div>
